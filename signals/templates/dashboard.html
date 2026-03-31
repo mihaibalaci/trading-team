@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Trading Team — Dashboard</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --red: #f85149; --yellow: #d29922;
+  --radius: 8px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+       background: var(--bg); color: var(--text); line-height: 1.5; }
+.container { max-width: 1280px; margin: 0 auto; padding: 20px; }
+
+/* Nav */
+nav { display:flex; align-items:center; gap:24px; padding:16px 0; border-bottom:1px solid var(--border); margin-bottom:24px; }
+nav h1 { font-size:18px; color:var(--accent); }
+nav .tabs { display:flex; gap:4px; }
+nav .tab { padding:8px 16px; border-radius:var(--radius); cursor:pointer; color:var(--muted);
+           border:1px solid transparent; font-size:14px; background:none; }
+nav .tab:hover { color:var(--text); background:var(--surface); }
+nav .tab.active { color:var(--text); background:var(--surface); border-color:var(--border); }
+
+/* Cards */
+.cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:24px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
+.card .label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+.card .value { font-size:24px; font-weight:600; margin-top:4px; }
+.card .value.green { color:var(--green); }
+.card .value.red { color:var(--red); }
+
+/* Tables */
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; padding:10px 12px; color:var(--muted); font-weight:500;
+     border-bottom:1px solid var(--border); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+td { padding:10px 12px; border-bottom:1px solid var(--border); }
+tr:hover { background:rgba(88,166,255,0.04); }
+.badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; }
+.badge.long { background:rgba(63,185,80,0.15); color:var(--green); }
+.badge.short { background:rgba(248,81,73,0.15); color:var(--red); }
+.badge.won { background:rgba(63,185,80,0.15); color:var(--green); }
+.badge.lost { background:rgba(248,81,73,0.15); color:var(--red); }
+.badge.flat { background:rgba(139,148,158,0.15); color:var(--muted); }
+.badge.active { background:rgba(88,166,255,0.15); color:var(--accent); }
+.badge.pending { background:rgba(210,153,34,0.15); color:var(--yellow); }
+
+/* Sections */
+.section { display:none; }
+.section.active { display:block; }
+.section-title { font-size:16px; font-weight:600; margin-bottom:16px; }
+
+/* Forms */
+.form-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:24px; }
+.form-group { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
+.form-group h3 { font-size:13px; color:var(--muted); margin-bottom:12px; text-transform:uppercase; letter-spacing:0.5px; }
+.option { display:block; padding:10px 12px; margin-bottom:6px; border-radius:6px; cursor:pointer;
+          border:1px solid var(--border); font-size:13px; color:var(--text); transition:all 0.15s; }
+.option:hover { border-color:var(--accent); }
+.option.selected { border-color:var(--accent); background:rgba(88,166,255,0.08); }
+.option .opt-label { font-weight:600; }
+.option .opt-detail { font-size:11px; color:var(--muted); margin-top:2px; }
+
+/* Buttons */
+.btn { padding:10px 24px; border-radius:var(--radius); border:none; cursor:pointer;
+       font-size:14px; font-weight:600; transition:all 0.15s; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:#79c0ff; }
+.btn-danger { background:var(--red); color:#fff; }
+.btn-danger:hover { background:#ff7b72; }
+.btn-secondary { background:var(--surface); color:var(--text); border:1px solid var(--border); }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+.btn-row { display:flex; gap:12px; margin-top:16px; }
+
+/* Status dot */
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+.dot.green { background:var(--green); }
+.dot.red { background:var(--red); }
+.dot.yellow { background:var(--yellow); }
+
+/* Platform card */
+.platform-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+                 padding:24px; max-width:500px; }
+.platform-card .row { display:flex; justify-content:space-between; padding:8px 0;
+                      border-bottom:1px solid var(--border); font-size:14px; }
+.platform-card .row:last-child { border:none; }
+.platform-card .row .k { color:var(--muted); }
+
+/* Watchlist pills */
+.pills { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.pill { background:var(--surface); border:1px solid var(--border); border-radius:16px;
+        padding:4px 12px; font-size:12px; color:var(--muted); }
+
+@media (max-width:768px) {
+  .form-grid { grid-template-columns:1fr; }
+  .cards { grid-template-columns:1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <nav>
+    <h1>🤖 AI Trading Team</h1>
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('dashboard')">Dashboard</button>
+      <button class="tab" onclick="showTab('trades')">Trade History</button>
+      <button class="tab" onclick="showTab('strategies')">Strategies</button>
+      <button class="tab" onclick="showTab('platform')">Platform</button>
+    </div>
+  </nav>
+
+  <!-- DASHBOARD -->
+  <div id="sec-dashboard" class="section active">
+    <div class="cards">
+      <div class="card"><div class="label">Equity</div><div class="value" id="v-equity">—</div></div>
+      <div class="card"><div class="label">Total P&L</div><div class="value" id="v-pnl">—</div></div>
+      <div class="card"><div class="label">Win Rate</div><div class="value" id="v-winrate">—</div></div>
+      <div class="card"><div class="label">Wins / Losses</div><div class="value" id="v-wl">—</div></div>
+      <div class="card"><div class="label">Drawdown</div><div class="value" id="v-dd">—</div></div>
+      <div class="card"><div class="label">Scanner</div><div class="value" id="v-scanner">—</div></div>
+    </div>
+
+    <div class="section-title">Active Positions</div>
+    <table>
+      <thead><tr><th>Symbol</th><th>Direction</th><th>Pattern</th><th>Str</th><th>Entry</th><th>Stop</th><th>T1</th><th>T2</th><th>Size</th><th>Status</th><th>P&L</th></tr></thead>
+      <tbody id="active-body"><tr><td colspan="11" style="color:var(--muted)">No active positions</td></tr></tbody>
+    </table>
+
+    <div style="margin-top:24px">
+      <div class="section-title">Scanner Control</div>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; max-width:600px;">
+        <select id="sc-horizon" style="padding:8px;border-radius:6px;background:var(--surface);color:var(--text);border:1px solid var(--border)">
+          <option value="short">Short (1-5m)</option>
+          <option value="medium">Medium (5-30m)</option>
+          <option value="long">Long (30m-2h)</option>
+        </select>
+        <select id="sc-assets" style="padding:8px;border-radius:6px;background:var(--surface);color:var(--text);border:1px solid var(--border)">
+          <option value="stocks">Stocks</option>
+          <option value="forex">Forex</option>
+          <option value="commodities">Commodities</option>
+        </select>
+        <select id="sc-risk" style="padding:8px;border-radius:6px;background:var(--surface);color:var(--text);border:1px solid var(--border)">
+          <option value="conservative">Conservative</option>
+          <option value="moderate" selected>Moderate</option>
+          <option value="aggressive">Aggressive</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-start" onclick="startScanner()">Start Scanner</button>
+        <button class="btn btn-danger" id="btn-stop" onclick="stopScanner()" disabled>Stop All</button>
+      </div>
+      <div id="scanner-list" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <!-- TRADE HISTORY -->
+  <div id="sec-trades" class="section">
+    <div class="cards" style="grid-template-columns:repeat(4,1fr); margin-bottom:24px;">
+      <div class="card"><div class="label">Total Trades</div><div class="value" id="h-total">0</div></div>
+      <div class="card"><div class="label">Wins</div><div class="value green" id="h-wins">0</div></div>
+      <div class="card"><div class="label">Losses</div><div class="value red" id="h-losses">0</div></div>
+      <div class="card"><div class="label">Net P&L (R)</div><div class="value" id="h-pnl">0.00R</div></div>
+    </div>
+    <div class="section-title">Closed Trades</div>
+    <table>
+      <thead><tr><th>#</th><th>Symbol</th><th>Dir</th><th>Pattern</th><th>Str</th><th>Entry</th><th>Stop</th><th>Result</th><th>P&L (R)</th><th>P&L ($)</th><th>Duration</th><th>Strategy</th></tr></thead>
+      <tbody id="history-body"><tr><td colspan="12" style="color:var(--muted)">No closed trades yet</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- STRATEGIES -->
+  <div id="sec-strategies" class="section">
+    <div class="section-title">Available Strategy Configurations</div>
+    <div id="strat-content"></div>
+  </div>
+
+  <!-- PLATFORM -->
+  <div id="sec-platform" class="section">
+    <div class="section-title">Trading Platform</div>
+    <div class="platform-card" id="platform-card">
+      <div class="row"><span class="k">Platform</span><span>—</span></div>
+      <div class="row"><span class="k">Mode</span><span>—</span></div>
+      <div class="row"><span class="k">Status</span><span>—</span></div>
+      <div class="row"><span class="k">Equity</span><span>—</span></div>
+    </div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn btn-secondary" onclick="checkBroker()">Test Connection</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('sec-'+name).classList.add('active');
+  event.target.classList.add('active');
+  if (name==='strategies') loadStrategies();
+}
+
+function fmt$(v) { return '$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+async function refresh() {
+  try {
+    const [st, tr] = await Promise.all([
+      fetch('/api/status').then(r=>r.json()),
+      fetch('/api/trades').then(r=>r.json()),
+    ]);
+
+    // Dashboard cards
+    document.getElementById('v-equity').textContent = fmt$(st.equity);
+    const pnlEl = document.getElementById('v-pnl');
+    pnlEl.textContent = (st.total_pnl_r>=0?'+':'')+st.total_pnl_r.toFixed(2)+'R';
+    pnlEl.className = 'value '+(st.total_pnl_r>=0?'green':'red');
+    document.getElementById('v-winrate').textContent = st.win_rate.toFixed(1)+'%';
+    document.getElementById('v-wl').textContent = st.wins+'W / '+st.losses+'L';
+    const ddEl = document.getElementById('v-dd');
+    ddEl.textContent = st.drawdown_pct.toFixed(1)+'%';
+    ddEl.className = 'value '+(st.drawdown_pct>3?'red':'');
+    const scEl = document.getElementById('v-scanner');
+    scEl.innerHTML = st.scanner_running
+      ? '<span class="dot green"></span>'+st.active_scanners+' running'
+      : '<span class="dot red"></span>Stopped';
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('btn-stop').disabled = !st.scanner_running;
+
+    // Active trades
+    const ab = document.getElementById('active-body');
+    if (tr.active.length === 0) {
+      ab.innerHTML = '<tr><td colspan="11" style="color:var(--muted)">No active positions</td></tr>';
+    } else {
+      ab.innerHTML = tr.active.map(t => `<tr>
+        <td><strong>${t.symbol}</strong></td>
+        <td><span class="badge ${t.direction}">${t.direction.toUpperCase()}</span></td>
+        <td>${t.pattern}</td><td>${t.strength}/100</td>
+        <td>${fmt$(t.entry)}</td><td>${fmt$(t.stop)}</td><td>${fmt$(t.t1)}</td><td>${fmt$(t.t2)}</td>
+        <td>${Math.round(t.size)}</td>
+        <td><span class="badge ${t.status}">${t.status}</span></td>
+        <td>${t.pnl_r>=0?'+':''}${t.pnl_r.toFixed(2)}R</td>
+      </tr>`).join('');
+    }
+
+    // History
+    document.getElementById('h-total').textContent = st.total_trades;
+    document.getElementById('h-wins').textContent = st.wins;
+    document.getElementById('h-losses').textContent = st.losses;
+    const hpEl = document.getElementById('h-pnl');
+    hpEl.textContent = (st.total_pnl_r>=0?'+':'')+st.total_pnl_r.toFixed(2)+'R';
+    hpEl.className = 'value '+(st.total_pnl_r>=0?'green':'red');
+
+    const hb = document.getElementById('history-body');
+    if (tr.closed.length === 0) {
+      hb.innerHTML = '<tr><td colspan="12" style="color:var(--muted)">No closed trades yet</td></tr>';
+    } else {
+      hb.innerHTML = tr.closed.map(t => `<tr>
+        <td>${t.id}</td><td><strong>${t.symbol}</strong></td>
+        <td><span class="badge ${t.direction}">${t.direction.toUpperCase()}</span></td>
+        <td>${t.pattern}</td><td>${t.strength}</td>
+        <td>${fmt$(t.entry)}</td><td>${fmt$(t.stop)}</td>
+        <td><span class="badge ${t.status}">${t.status.toUpperCase()}</span></td>
+        <td style="color:${t.pnl_r>=0?'var(--green)':'var(--red)'}">${t.pnl_r>=0?'+':''}${t.pnl_r.toFixed(2)}R</td>
+        <td>${fmt$(t.pnl_dollars)}</td>
+        <td>${t.duration?t.duration.toFixed(0)+'m':'—'}</td>
+        <td style="font-size:11px;color:var(--muted)">${t.horizon}/${t.asset_class}</td>
+      </tr>`).join('');
+    }
+
+    // Platform
+    const pc = document.getElementById('platform-card');
+    const b = st.broker;
+
+    // Active scanners list
+    const sl = document.getElementById('scanner-list');
+    if (st.scanners && st.scanners.length > 0) {
+      sl.innerHTML = '<div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Active Scanners:</div>' +
+        st.scanners.map(s => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;">
+          <span class="dot ${s.running?'green':'red'}"></span>
+          <span>${s.id}</span>
+          <span style="color:var(--muted)">${s.horizon}/${s.asset_class}/${s.risk_level}</span>
+          ${s.running ? '<button class="btn btn-danger" style="padding:2px 10px;font-size:11px;" onclick="stopOne(\''+s.id+'\')">Stop</button>' : '<span style="color:var(--muted)">stopped</span>'}
+        </div>`).join('');
+    } else {
+      sl.innerHTML = '';
+    }
+    pc.innerHTML = `
+      <div class="row"><span class="k">Platform</span><span>${b.platform.toUpperCase()}</span></div>
+      <div class="row"><span class="k">Mode</span><span>${b.mode.toUpperCase()}</span></div>
+      <div class="row"><span class="k">Status</span><span>${b.connected?'<span class="dot green"></span>Connected':'<span class="dot red"></span>Disconnected'}</span></div>
+      <div class="row"><span class="k">Equity</span><span>${fmt$(b.equity)}</span></div>
+    `;
+  } catch(e) { console.error('Refresh error:', e); }
+}
+
+async function startScanner() {
+  const body = {
+    horizon: document.getElementById('sc-horizon').value,
+    asset_class: document.getElementById('sc-assets').value,
+    risk_level: document.getElementById('sc-risk').value,
+  };
+  const r = await fetch('/api/scanner/start', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const d = await r.json();
+  if (!d.ok) alert(d.msg);
+  refresh();
+}
+
+async function stopScanner() {
+  await fetch('/api/scanner/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})});
+  refresh();
+}
+
+async function stopOne(id) {
+  await fetch('/api/scanner/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({scanner_id:id})});
+  refresh();
+}
+
+async function checkBroker() {
+  await fetch('/api/broker/check', {method:'POST'});
+  refresh();
+}
+
+async function loadStrategies() {
+  const r = await fetch('/api/strategies');
+  const d = await r.json();
+  let html = '<div class="form-grid">';
+
+  html += '<div class="form-group"><h3>Trade Horizons</h3>';
+  d.horizons.forEach(h => {
+    html += `<div class="option"><div class="opt-label">${h.value.toUpperCase()}</div>
+      <div class="opt-detail">${h.label}<br>Timeframes: ${h.trend}m / ${h.setup}m / ${h.entry}m — Scan: ${h.scan_s}s</div></div>`;
+  });
+  html += '</div>';
+
+  html += '<div class="form-group"><h3>Risk Levels</h3>';
+  d.risks.forEach(r => {
+    html += `<div class="option"><div class="opt-label">${r.value.toUpperCase()}</div>
+      <div class="opt-detail">${r.label}<br>Risk: ${(r.risk_pct*100).toFixed(1)}% — Max pos: ${r.max_pos} — Min signal: ${r.min_str}/100</div></div>`;
+  });
+  html += '</div>';
+
+  html += '<div class="form-group"><h3>Asset Classes</h3>';
+  d.assets.forEach(a => {
+    html += `<div class="option"><div class="opt-label">${a.value.toUpperCase()}</div>
+      <div class="opt-detail">${a.label}</div>
+      <div class="pills">${a.watchlist.map(s=>'<span class="pill">'+s+'</span>').join('')}</div></div>`;
+  });
+  html += '</div></div>';
+
+  document.getElementById('strat-content').innerHTML = html;
+}
+
+// Auto-refresh every 5s
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

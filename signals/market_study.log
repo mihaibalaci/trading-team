@@ -1,0 +1,46 @@
+/Users/mbalaci/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+============================================================
+  FINN & PAX — 6-MONTH MARKET STUDY
+============================================================
+
+[PHASE 1] Volatility (daily, 6 months)
+  [VOL] SPY ... -3.3% return, 12.9% vol
+  [VOL] QQQ ... -5.4% return, 17.6% vol
+  [VOL] TSLA ... -18.3% return, 41.7% vol
+  [VOL] NVDA ... -8.8% return, 36.0% vol
+  [VOL] AAPL ... -2.0% return, 21.1% vol
+  [VOL] AMD ... +22.0% return, 70.6% vol
+  [VOL] COIN ... -50.5% return, 73.8% vol
+  [VOL] MARA ... -57.7% return, 87.1% vol
+  [VOL] SMCI ... -55.0% return, 81.9% vol
+  [VOL] META ... -23.8% return, 36.9% vol
+  [VOL] NFLX ... -20.8% return, 37.6% vol
+  [VOL] BA ... -10.4% return, 32.2% vol
+  [VOL] PLTR ... -22.1% return, 52.5% vol
+  [VOL] ARM ... +2.9% return, 55.3% vol
+  [VOL] MSTR ... -63.0% return, 79.6% vol
+  [VOL] SNAP ... -41.1% return, 53.8% vol
+
+[PHASE 2] Pattern analysis (15m, 60 days)
+  [PAT] SPY ... 1448 patterns
+  [PAT] QQQ ... 1430 patterns
+  [PAT] TSLA ... 1252 patterns
+  [PAT] NVDA ... 1347 patterns
+  [PAT] AAPL ... 1447 patterns
+  [PAT] AMD ... 1258 patterns
+  [PAT] COIN ... 1139 patterns
+  [PAT] MARA ... 958 patterns
+  [PAT] SMCI ... 1104 patterns
+  [PAT] META ... 1421 patterns
+  [PAT] NFLX ... 1307 patterns
+  [PAT] BA ... 1339 patterns
+  [PAT] PLTR ... 1250 patterns
+  [PAT] ARM ... 1257 patterns
+  [PAT] MSTR ... 1079 patterns
+  [PAT] SNAP ... 977 patterns
+
+[PHASE 3] Report (20013 patterns)
+
+  ✓ Saved to /Users/mbalaci/AI_projects/trading-team/signals/../Team/FINN_6MONTH_MARKET_STUDY.md
+============================================================
