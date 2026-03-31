@@ -29,7 +29,7 @@ fi
 echo "[2/6] Installing Python dependencies..."
 apt-get update -qq
 apt-get install -y -qq python3 python3-pip python3-venv
-pip3 install --quiet pandas numpy alpaca-py python-dotenv flask
+pip3 install --quiet -r "$APP_DIR/requirements.txt"
 
 # Copy application
 echo "[3/6] Deploying application to $APP_DIR..."

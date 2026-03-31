@@ -1,0 +1,6 @@
+pandas>=2.0
+numpy>=1.22
+alpaca-py>=0.30
+python-dotenv>=1.0
+flask>=3.0
+pytz>=2024.1

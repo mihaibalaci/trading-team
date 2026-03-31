@@ -64,14 +64,14 @@ sudo chown -R trader:trader /opt/trading-team
 ### Step 4 — Install Python dependencies
 
 ```bash
-sudo pip3 install pandas numpy alpaca-py python-dotenv flask
+sudo pip3 install -r /opt/trading-team/requirements.txt
 ```
 
 Or use a virtual environment (recommended for production):
 
 ```bash
 sudo -u trader python3 -m venv /opt/trading-team/venv
-sudo -u trader /opt/trading-team/venv/bin/pip install pandas numpy alpaca-py python-dotenv flask
+sudo -u trader /opt/trading-team/venv/bin/pip install -r /opt/trading-team/requirements.txt
 ```
 
 If using a venv, update the `ExecStart` line in the service file:
@@ -265,7 +265,7 @@ Tables: `users`, `trades`, `daily_stats`, `scanner_sessions`, `strategy_configs`
 | Kai fails to connect | Verify `.env` has correct Alpaca keys. Test: `python3 signals/kai_connect_test.py` |
 | Dashboard not loading | Check if port 5050 is in use: `sudo ss -tlnp \| grep 5050` |
 | Permission denied | Run `sudo chown -R trader:trader /opt/trading-team` |
-| Python module not found | Run `sudo pip3 install pandas numpy alpaca-py python-dotenv flask` |
+| Python module not found | Run `sudo pip3 install -r /opt/trading-team/requirements.txt` |
 | No trades executing | Check if market is open. Finn only scans during session hours. |
 | Mira halted trading | Drawdown exceeded limit. Check `journalctl` for Mira's messages. |
 
