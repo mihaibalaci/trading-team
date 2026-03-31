@@ -48,8 +48,18 @@ WATCHLIST = [
 
 MAX_POSITIONS   = 3      # Mira CRIT-01: Vera's hard cap
 RISK_PER_TRADE  = 0.01   # 1% per trade
-SCAN_INTERVAL_S = 60     # scan every 60 seconds
-MIN_SIGNAL_STR  = 50     # only take signals with strength ≥ 50
+SCAN_INTERVAL_S = 60     # scan every 60 seconds (1 bar on the entry timeframe)
+MIN_SIGNAL_STR  = 45     # slightly lower threshold for shorter-timeframe signals
+
+# Timeframe configuration — 15m/5m/1m for scalp mode (1–5 min holds)
+TF_TREND_MIN  = 15   # replaces 30m — trend bias
+TF_SETUP_MIN  = 5    # replaces 15m — pattern + confluence
+TF_ENTRY_MIN  = 1    # entry trigger (unchanged)
+
+# Bar counts per timeframe (enough for EMA50 + ATR14 to be reliable)
+BARS_TREND    = 80   # 15m bars  (~20 hours)
+BARS_SETUP    = 120  # 5m bars   (~10 hours)
+BARS_ENTRY    = 200  # 1m bars   (~3.5 hours)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -170,10 +180,11 @@ class Portfolio:
 def run_scanner(max_cycles: int | None = None, scan_interval: int = SCAN_INTERVAL_S):
     print()
     print("=" * 64)
-    print("  FINN / REMY / KAI — LIVE SIGNAL SCANNER")
+    print("  FINN / REMY / KAI — LIVE SIGNAL SCANNER  [SCALP MODE]")
     print(f"  Watchlist: {', '.join(WATCHLIST)}")
     print(f"  Max positions: {MAX_POSITIONS}  |  Risk/trade: {RISK_PER_TRADE:.0%}")
     print(f"  Min signal strength: {MIN_SIGNAL_STR}/100")
+    print(f"  Timeframes: {TF_TREND_MIN}m trend / {TF_SETUP_MIN}m setup / {TF_ENTRY_MIN}m entry")
     print("=" * 64)
 
     # ── Connect ───────────────────────────────────────────────────
@@ -318,10 +329,10 @@ def _scan_symbol(symbol: str, connector: BrokerConnector,
                  now: datetime) -> None:
     """Fetch bars for one symbol, run Finn's engine, execute if valid."""
 
-    # Fetch multi-timeframe bars
-    df_1m  = fetch_bars(connector, symbol, 1,  200)
-    df_15m = fetch_bars(connector, symbol, 15, 100)
-    df_30m = fetch_bars(connector, symbol, 30,  60)
+    # Fetch multi-timeframe bars (15m trend / 5m setup / 1m entry)
+    df_1m  = fetch_bars(connector, symbol, TF_ENTRY_MIN, BARS_ENTRY)
+    df_15m = fetch_bars(connector, symbol, TF_SETUP_MIN, BARS_SETUP)   # 5m as setup TF
+    df_30m = fetch_bars(connector, symbol, TF_TREND_MIN, BARS_TREND)   # 15m as trend TF
 
     if df_1m.empty or df_15m.empty or df_30m.empty:
         return
@@ -397,6 +408,7 @@ def _scan_symbol(symbol: str, connector: BrokerConnector,
 # ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Run 5 scan cycles (5 minutes at 60s interval) then produce final report.
-    # Remove max_cycles to run indefinitely.
-    run_scanner(max_cycles=5, scan_interval=60)
+    # Runs indefinitely until Ctrl+C.
+    # Scans every 60s on 15m/5m/1m timeframes (scalp mode).
+    # Takes up to 3 simultaneous positions — Mira's hard cap.
+    run_scanner(max_cycles=None, scan_interval=60)
