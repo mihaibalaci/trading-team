@@ -110,6 +110,10 @@ tr:hover { background:rgba(88,166,255,0.04); }
       <button class="tab" onclick="showTab('strategies')">Strategies</button>
       <button class="tab" onclick="showTab('platform')">Platform</button>
     </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+      <span id="user-label" style="font-size:13px;color:var(--muted)"></span>
+      <button class="btn btn-secondary" style="padding:6px 14px;font-size:12px;" onclick="doLogout()">Logout</button>
+    </div>
   </nav>
 
   <!-- DASHBOARD -->
@@ -206,9 +210,12 @@ function fmt$(v) { return '$'+Number(v).toLocaleString(undefined,{minimumFractio
 async function refresh() {
   try {
     const [st, tr] = await Promise.all([
-      fetch('/api/status').then(r=>r.json()),
-      fetch('/api/trades').then(r=>r.json()),
+      fetch('/api/status').then(r=>{if(r.status===401){window.location.href='/login';throw'auth'}return r.json()}),
+      fetch('/api/trades').then(r=>{if(r.status===401)throw'auth';return r.json()}),
     ]);
+
+    // User label
+    if(st.username) document.getElementById('user-label').textContent = st.username;
 
     // Dashboard cards
     document.getElementById('v-equity').textContent = fmt$(st.equity);
@@ -319,6 +326,11 @@ async function stopOne(id) {
 async function checkBroker() {
   await fetch('/api/broker/check', {method:'POST'});
   refresh();
+}
+
+async function doLogout() {
+  await fetch('/api/auth/logout', {method:'POST'});
+  window.location.href = '/login';
 }
 
 async function loadStrategies() {

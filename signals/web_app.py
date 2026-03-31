@@ -2,11 +2,13 @@
 web_app.py — Flask web dashboard for the AI trading team.
 
 Features:
+  - Authentication: login, registration, session management
+  - SQLite persistence: trades, daily stats, scanner sessions, strategies, signals
   - Live dashboard: current positions, P&L, equity
   - Trade history: win/loss reports with R-multiple tracking
   - Strategy configurator: horizon, asset class, risk level
   - Platform settings: broker connection config
-  - Scanner control: start/stop from the UI
+  - Scanner control: start/stop from the UI (multi-threaded)
 
 Usage:
     python3 signals/web_app.py
@@ -19,26 +21,38 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import json
+import secrets
 import threading
 import time
 import logging
-from datetime import datetime, timedelta, time as dtime
+from datetime import datetime, date, timedelta, time as dtime
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
 
-from flask import Flask, render_template_string, jsonify, request
+from flask import Flask, jsonify, request, session, redirect, url_for
 
 from strategy_config import (
     Horizon, AssetClass, RiskLevel,
     build_profile, StrategyProfile,
     WATCHLISTS, TIMEFRAME_CONFIG, RISK_CONFIG, SESSION_CONFIG,
 )
+from database import (
+    init_db, ensure_default_admin,
+    create_user, verify_user, get_user, list_users,
+    insert_trade, update_trade_by_id, get_active_trades, get_closed_trades, get_trade_stats,
+    upsert_daily_stats, get_daily_stats,
+    insert_scanner_session, close_scanner_session, get_scanner_sessions,
+    save_strategy, get_strategies, delete_strategy,
+    log_signal, get_signals,
+)
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET", secrets.token_hex(32))
 
 # ─────────────────────────────────────────────────────────────────
 # In-memory state
@@ -190,6 +204,86 @@ class AppState:
 
 
 state = AppState()
+
+
+# ─────────────────────────────────────────────────────────────────
+# Auth helpers
+# ─────────────────────────────────────────────────────────────────
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user_id" not in session:
+            if request.is_json or request.path.startswith("/api/"):
+                return jsonify({"ok": False, "msg": "Not authenticated"}), 401
+            return redirect("/login")
+        return f(*args, **kwargs)
+    return decorated
+
+
+def current_user_id() -> int:
+    return session.get("user_id", 0)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Auth routes
+# ─────────────────────────────────────────────────────────────────
+
+@app.route("/login")
+def login_page():
+    if "user_id" in session:
+        return redirect("/")
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "login.html")
+    with open(template_path) as f:
+        return f.read()
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_login():
+    data = request.json or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    if not username or not password:
+        return jsonify({"ok": False, "msg": "Username and password required"})
+    user = verify_user(username, password)
+    if not user:
+        return jsonify({"ok": False, "msg": "Invalid username or password"})
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+    session["role"] = user["role"]
+    return jsonify({"ok": True, "username": user["username"]})
+
+
+@app.route("/api/auth/register", methods=["POST"])
+def api_register():
+    data = request.json or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    if not username or len(username) < 2:
+        return jsonify({"ok": False, "msg": "Username must be at least 2 characters"})
+    if len(password) < 4:
+        return jsonify({"ok": False, "msg": "Password must be at least 4 characters"})
+    user_id = create_user(username, password)
+    if user_id is None:
+        return jsonify({"ok": False, "msg": "Username already taken"})
+    session["user_id"] = user_id
+    session["username"] = username
+    session["role"] = "trader"
+    return jsonify({"ok": True, "username": username})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/me")
+def api_me():
+    if "user_id" not in session:
+        return jsonify({"ok": False})
+    return jsonify({"ok": True, "user_id": session["user_id"],
+                    "username": session["username"], "role": session.get("role", "trader")})
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -346,22 +440,29 @@ def _scanner_worker(profile: StrategyProfile, scanner_id: str):
 # ─────────────────────────────────────────────────────────────────
 
 @app.route("/api/status")
+@login_required
 def api_status():
+    uid = current_user_id()
+    db_stats = get_trade_stats(uid)
     return jsonify({
         "equity": state.equity,
         "starting_equity": state.starting_equity,
         "peak_equity": state.peak_equity,
         "drawdown_pct": round(state.drawdown_pct, 2),
-        "total_pnl_r": round(state.total_pnl_r, 2),
-        "win_rate": round(state.win_rate, 1),
-        "total_trades": len(state.closed_trades),
-        "wins": len(state.wins),
-        "losses": len(state.losses),
+        "total_pnl_r": round(db_stats["total_pnl_r"], 2),
+        "win_rate": round(db_stats["win_rate"], 1),
+        "total_trades": db_stats["total"],
+        "wins": db_stats["wins"],
+        "losses": db_stats["losses"],
+        "best_r": round(db_stats["best_r"], 2),
+        "worst_r": round(db_stats["worst_r"], 2),
+        "avg_r": round(db_stats["avg_r"], 3),
         "active_count": len(state.active_trades),
         "scanner_running": state.scanner_running or state.active_scanner_count > 0,
         "active_scanners": state.active_scanner_count,
         "scanners": state.get_scanners_info(),
         "broker": state.broker_config,
+        "username": session.get("username", ""),
         "profile": {
             "horizon": state.current_profile.horizon.value if state.current_profile else None,
             "asset_class": state.current_profile.asset_class.value if state.current_profile else None,
@@ -371,15 +472,19 @@ def api_status():
 
 
 @app.route("/api/trades")
+@login_required
 def api_trades():
+    uid = current_user_id()
     return jsonify({
-        "active": [_trade_dict(t) for t in state.active_trades],
-        "closed": [_trade_dict(t) for t in reversed(state.closed_trades)],
+        "active": get_active_trades(uid),
+        "closed": get_closed_trades(uid),
     })
 
 
 @app.route("/api/strategies")
+@login_required
 def api_strategies():
+    uid = current_user_id()
     horizons = []
     for h in Horizon:
         tf = TIMEFRAME_CONFIG[h]
@@ -397,25 +502,79 @@ def api_strategies():
         sc = SESSION_CONFIG[a]
         assets.append({"value": a.value, "label": sc["label"],
                        "watchlist": WATCHLISTS[a]})
-    return jsonify({"horizons": horizons, "risks": risks, "assets": assets})
+    saved = get_strategies(uid)
+    return jsonify({"horizons": horizons, "risks": risks, "assets": assets, "saved": saved})
+
+
+@app.route("/api/strategies/save", methods=["POST"])
+@login_required
+def api_save_strategy():
+    uid = current_user_id()
+    data = request.json or {}
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"ok": False, "msg": "Strategy name required"})
+    sid = save_strategy(
+        uid, name, data.get("horizon", "short"),
+        data.get("asset_class", "stocks"), data.get("risk_level", "moderate"),
+        data.get("watchlist", ""), data.get("notes", ""),
+    )
+    return jsonify({"ok": True, "id": sid})
+
+
+@app.route("/api/strategies/delete", methods=["POST"])
+@login_required
+def api_delete_strategy():
+    uid = current_user_id()
+    data = request.json or {}
+    delete_strategy(data.get("id", 0), uid)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/daily_stats")
+@login_required
+def api_daily_stats():
+    uid = current_user_id()
+    days = request.args.get("days", 30, type=int)
+    return jsonify(get_daily_stats(uid, days))
+
+
+@app.route("/api/scanner_sessions")
+@login_required
+def api_scanner_sessions():
+    uid = current_user_id()
+    return jsonify(get_scanner_sessions(uid))
+
+
+@app.route("/api/signals")
+@login_required
+def api_signals():
+    uid = current_user_id()
+    return jsonify(get_signals(uid))
+
+
+@app.route("/api/users")
+@login_required
+def api_users():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    return jsonify(list_users())
 
 
 @app.route("/api/scanner/start", methods=["POST"])
+@login_required
 def api_scanner_start():
+    uid = current_user_id()
     data = request.json or {}
     horizon = Horizon(data.get("horizon", "short"))
     asset_class = AssetClass(data.get("asset_class", "stocks"))
     risk_level = RiskLevel(data.get("risk_level", "moderate"))
 
-    # Generate unique scanner ID
     scanner_id = f"{horizon.value}-{asset_class.value}-{risk_level.value}"
 
     with state._lock:
-        # Check if this exact config is already running
         if scanner_id in state._scanners and state._scanners[scanner_id]["running"]:
             return jsonify({"ok": False, "msg": f"Scanner '{scanner_id}' already running"})
-
-        # Max 5 concurrent scanners
         active = sum(1 for s in state._scanners.values() if s["running"])
         if active >= 5:
             return jsonify({"ok": False, "msg": "Max 5 concurrent scanners. Stop one first."})
@@ -424,8 +583,12 @@ def api_scanner_start():
     state.current_profile = profile
     state.scanner_running = True
 
+    # Persist scanner session to DB
+    db_session_id = insert_scanner_session(uid, scanner_id, horizon.value, asset_class.value, risk_level.value)
+
     with state._lock:
-        state._scanners[scanner_id] = {"profile": profile, "running": True}
+        state._scanners[scanner_id] = {"profile": profile, "running": True,
+                                        "user_id": uid, "db_session_id": db_session_id}
 
     thread = threading.Thread(
         target=_scanner_worker,
@@ -435,28 +598,30 @@ def api_scanner_start():
     )
     thread.start()
 
-    return jsonify({
-        "ok": True,
-        "msg": f"Scanner started: {scanner_id}",
-        "scanner_id": scanner_id,
-        "active_scanners": state.active_scanner_count,
-    })
+    return jsonify({"ok": True, "msg": f"Scanner started: {scanner_id}",
+                    "scanner_id": scanner_id, "active_scanners": state.active_scanner_count})
 
 
 @app.route("/api/scanner/stop", methods=["POST"])
+@login_required
 def api_scanner_stop():
     data = request.json or {}
     scanner_id = data.get("scanner_id")
 
     with state._lock:
         if scanner_id and scanner_id in state._scanners:
-            # Stop specific scanner
             state._scanners[scanner_id]["running"] = False
+            # Close DB session
+            db_sid = state._scanners[scanner_id].get("db_session_id")
+            if db_sid:
+                close_scanner_session(db_sid, 0, 0.0)
             msg = f"Scanner '{scanner_id}' stopping..."
         else:
-            # Stop all scanners
-            for s in state._scanners.values():
+            for sid, s in state._scanners.items():
                 s["running"] = False
+                db_sid = s.get("db_session_id")
+                if db_sid:
+                    close_scanner_session(db_sid, 0, 0.0)
             state.scanner_running = False
             msg = "All scanners stopping..."
 
@@ -464,6 +629,7 @@ def api_scanner_stop():
 
 
 @app.route("/api/broker/check", methods=["POST"])
+@login_required
 def api_broker_check():
     state._check_broker()
     return jsonify(state.broker_config)
@@ -488,6 +654,7 @@ def _trade_dict(t: TradeRecord) -> dict:
 # ─────────────────────────────────────────────────────────────────
 
 @app.route("/")
+@login_required
 def index():
     template_path = os.path.join(os.path.dirname(__file__), "templates", "dashboard.html")
     with open(template_path) as f:
@@ -499,10 +666,13 @@ def index():
 # ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    init_db()
+    ensure_default_admin()
     print()
     print("=" * 60)
     print("  AI TRADING TEAM — WEB DASHBOARD")
-    print("  Multi-threaded: Flask + up to 5 concurrent scanners")
+    print("  Multi-threaded: Flask + SQLite + Auth")
+    print("  Default login: admin / admin123")
     print("  Open http://localhost:5050")
     print("=" * 60)
     print()
