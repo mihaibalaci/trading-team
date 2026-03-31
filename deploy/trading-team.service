@@ -1,0 +1,36 @@
+[Unit]
+Description=AI Trading Team Service
+After=network-online.target
+Wants=network-online.target
+Documentation=https://github.com/mihaibalaci/trading-team
+
+[Service]
+Type=simple
+User=trader
+Group=trader
+WorkingDirectory=/opt/trading-team
+ExecStart=/usr/bin/python3 /opt/trading-team/signals/service.py --daemon
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Environment
+EnvironmentFile=/opt/trading-team/signals/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=FLASK_SECRET=change-this-to-a-random-secret
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/trading-team/signals
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading-team
+
+[Install]
+WantedBy=multi-user.target
