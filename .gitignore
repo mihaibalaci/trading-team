@@ -1,0 +1,8 @@
+# Secrets — never commit
+signals/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
