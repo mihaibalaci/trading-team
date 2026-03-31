@@ -9,6 +9,7 @@ Each detector returns:
     "bearish_<name>"        — bearish pattern detected
     "neutral_<name>"        — neutral (doji-type) pattern detected
 """
+from __future__ import annotations
 
 import pandas as pd
 import numpy as np

@@ -3,6 +3,7 @@ backtest.py — Walk-forward backtesting harness for Finn's signal models.
 Validates signal quality before live deployment.
 Source: Pax Brief 01 (Walk-Forward Validation, PBO, Deflated Sharpe).
 """
+from __future__ import annotations
 
 import pandas as pd
 import numpy as np

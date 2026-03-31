@@ -2,6 +2,7 @@
 indicators.py — Technical indicator calculations for Finn's signal models.
 All indicators used in Vera's Multi-Timeframe Price Action Strategy.
 """
+from __future__ import annotations
 
 import pandas as pd
 import numpy as np

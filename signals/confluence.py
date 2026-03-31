@@ -3,6 +3,7 @@ confluence.py — Confluence scoring engine for Finn's signal models.
 Implements Vera's 5-factor confluence requirement (minimum 3 required).
 Source: VERA_STRATEGY_MTF_SCALP.md — Section 4.1
 """
+from __future__ import annotations
 
 import pandas as pd
 from indicators import (
