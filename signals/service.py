@@ -64,6 +64,20 @@ def create_shared_state(manager: SyncManager) -> dict:
         "drawdown_pct": 0.0,
         "mira_halt": False,
         "strategies_loaded": 0,
+        # Per-agent lifecycle status: "starting", "running", "stopped", "failed"
+        "status_larry": "stopped",
+        "status_kai":   "stopped",
+        "status_clio":  "stopped",
+        "status_mira":  "stopped",
+        "status_finn":  "stopped",
+        "status_remy":  "stopped",
+        # Per-agent commands written by the web UI, consumed by the main loop
+        "cmd_larry": "",
+        "cmd_kai":   "",
+        "cmd_clio":  "",
+        "cmd_mira":  "",
+        "cmd_finn":  "",
+        "cmd_remy":  "",
     })
 
 
@@ -78,6 +92,7 @@ def kai_process(shared: dict, shutdown: Event):
     If connection drops, sets kai_ready = False (halts Finn/Remy).
     """
     proc_log = logging.getLogger("Kai")
+    shared["status_kai"] = "starting"
     proc_log.info("Starting — testing broker connection...")
 
     try:
@@ -95,6 +110,7 @@ def kai_process(shared: dict, shutdown: Event):
                 shared["starting_equity"] = acct.equity
                 shared["peak_equity"] = acct.equity
                 shared["kai_ready"] = True
+                shared["status_kai"] = "running"
                 proc_log.info(f"Connected — {acct.trading_mode} mode, equity ${acct.equity:,.2f}")
                 break
             else:
@@ -103,6 +119,7 @@ def kai_process(shared: dict, shutdown: Event):
 
         if not shared["kai_ready"]:
             proc_log.error("Could not connect after 5 attempts. Kai shutting down.")
+            shared["status_kai"] = "failed"
             return
 
         # Health monitoring loop
@@ -126,8 +143,13 @@ def kai_process(shared: dict, shutdown: Event):
 
     except Exception as e:
         proc_log.error(f"Fatal error: {e}")
+        shared["status_kai"] = "failed"
         shared["kai_ready"] = False
     finally:
+        shared["kai_ready"] = False
+        shared["broker_connected"] = False
+        if shared.get("status_kai") != "failed":
+            shared["status_kai"] = "stopped"
         proc_log.info("Shutting down.")
 
 
@@ -141,6 +163,7 @@ def clio_process(shared: dict, strategy_queue: Queue, shutdown: Event):
     to the strategy_queue for Finn to consume.
     """
     proc_log = logging.getLogger("Clio")
+    shared["status_clio"] = "starting"
     proc_log.info("Starting — loading strategies into memory...")
 
     from strategy_config import (
@@ -171,12 +194,14 @@ def clio_process(shared: dict, strategy_queue: Queue, shutdown: Event):
 
     shared["strategies_loaded"] = len(profiles)
     shared["clio_ready"] = True
+    shared["status_clio"] = "running"
     proc_log.info(f"All {len(profiles)} strategies loaded. Clio standing by.")
 
     # Clio stays alive to handle reloads if needed
     while not shutdown.is_set():
         shutdown.wait(60)
 
+    shared["status_clio"] = "stopped"
     proc_log.info("Shutting down.")
 
 
@@ -190,8 +215,10 @@ def mira_process(shared: dict, shutdown: Event):
     Sets shared['mira_halt'] = True if drawdown exceeds limits.
     """
     proc_log = logging.getLogger("Mira")
+    shared["status_mira"] = "starting"
     proc_log.info("Starting — risk monitoring active.")
     shared["mira_ready"] = True
+    shared["status_mira"] = "running"
 
     DRAWDOWN_WARN = 5.0    # warn at 5%
     DRAWDOWN_REDUCE = 8.0  # reduce risk at 8%
@@ -225,6 +252,7 @@ def mira_process(shared: dict, shutdown: Event):
 
         shutdown.wait(10)
 
+    shared["status_mira"] = "stopped"
     proc_log.info("Shutting down.")
 
 
@@ -238,6 +266,7 @@ def finn_process(shared: dict, strategy_queue: Queue, signal_queue: Queue, shutd
     scans across all strategies. Valid signals go to signal_queue for Remy.
     """
     proc_log = logging.getLogger("Finn")
+    shared["status_finn"] = "starting"
     proc_log.info("Starting — waiting for Kai and Clio...")
 
     # Wait for dependencies
@@ -262,6 +291,7 @@ def finn_process(shared: dict, strategy_queue: Queue, signal_queue: Queue, shutd
 
     proc_log.info(f"Loaded {len(strategies)} strategies. Starting scan loop.")
     shared["finn_running"] = True
+    shared["status_finn"] = "running"
 
     from broker_connector import connect
     from signal_engine import generate_signal
@@ -354,6 +384,7 @@ def finn_process(shared: dict, strategy_queue: Queue, signal_queue: Queue, shutd
         shutdown.wait(min_interval)
 
     shared["finn_running"] = False
+    shared["status_finn"] = "stopped"
     proc_log.info("Shutting down.")
 
 
@@ -367,6 +398,7 @@ def remy_process(shared: dict, signal_queue: Queue, shutdown: Event):
     Manages the full trade lifecycle for each accepted signal.
     """
     proc_log = logging.getLogger("Remy")
+    shared["status_remy"] = "starting"
     proc_log.info("Starting — waiting for Kai...")
 
     while not shutdown.is_set():
@@ -379,6 +411,7 @@ def remy_process(shared: dict, signal_queue: Queue, shutdown: Event):
 
     proc_log.info("Kai ready. Listening for signals from Finn.")
     shared["remy_running"] = True
+    shared["status_remy"] = "running"
 
     from broker_connector import connect
     from execution import ExecutionEngine, SessionGuard, TradeStatus
@@ -488,6 +521,7 @@ def remy_process(shared: dict, signal_queue: Queue, shutdown: Event):
             proc_log.error(f"Close error {sym}: {e}")
 
     shared["remy_running"] = False
+    shared["status_remy"] = "stopped"
     proc_log.info("Shutdown complete.")
 
 
@@ -500,6 +534,7 @@ def larry_process(shared: dict, shutdown: Event):
     Larry runs the Flask web dashboard. Reads shared state for display.
     """
     proc_log = logging.getLogger("Larry")
+    shared["status_larry"] = "starting"
     proc_log.info("Starting web dashboard on port 5050...")
 
     # Import and patch the web app to use shared state
@@ -507,9 +542,9 @@ def larry_process(shared: dict, shutdown: Event):
     init_db()
     ensure_default_admin()
 
-    # Monkey-patch the web app's state to read from shared dict
+    # Inject shared state into web_app so routes can read statuses and write commands
     import web_app
-    original_check = web_app.state._check_broker
+    web_app._shared = shared
 
     def _sync_shared():
         """Sync shared multiprocessing state into web_app.state."""
@@ -527,6 +562,7 @@ def larry_process(shared: dict, shutdown: Event):
         _sync_shared()
 
     shared["larry_running"] = True
+    shared["status_larry"] = "running"
     proc_log.info("Dashboard ready at http://localhost:5050")
 
     try:
@@ -536,6 +572,7 @@ def larry_process(shared: dict, shutdown: Event):
         proc_log.error(f"Flask error: {e}")
     finally:
         shared["larry_running"] = False
+        shared["status_larry"] = "stopped"
         proc_log.info("Shutting down.")
 
 
@@ -551,7 +588,7 @@ def main():
     print()
     print("=" * 64)
     print("  AI TRADING TEAM — SERVICE ORCHESTRATOR")
-    print("  Boot sequence: Kai → Clio → Mira → Finn → Remy → Larry")
+    print("  Boot sequence: Larry → Kai → Clio → Mira → Finn → Remy")
     print("=" * 64)
     print()
 
@@ -567,24 +604,71 @@ def main():
     signal_queue = Queue()
     shutdown = Event()
 
-    # Define agent processes in boot order
-    agents = [
-        ("Kai",  kai_process,  (shared, shutdown)),
-        ("Clio", clio_process, (shared, strategy_queue, shutdown)),
-        ("Mira", mira_process, (shared, shutdown)),
-        ("Finn", finn_process, (shared, strategy_queue, signal_queue, shutdown)),
-        ("Remy", remy_process, (shared, signal_queue, shutdown)),
-        ("Larry", larry_process, (shared, shutdown)),
-    ]
+    # Boot order — Larry first so the web UI is always available
+    BOOT_ORDER = ["larry", "kai", "clio", "mira", "finn", "remy"]
 
-    processes: list[Process] = []
+    AGENT_TARGETS = {
+        "larry": larry_process,
+        "kai":   kai_process,
+        "clio":  clio_process,
+        "mira":  mira_process,
+        "finn":  finn_process,
+        "remy":  remy_process,
+    }
+
+    # Args are lambdas so they can be re-evaluated on restart
+    AGENT_ARGS = {
+        "larry": lambda: (shared, shutdown),
+        "kai":   lambda: (shared, shutdown),
+        "clio":  lambda: (shared, strategy_queue, shutdown),
+        "mira":  lambda: (shared, shutdown),
+        "finn":  lambda: (shared, strategy_queue, signal_queue, shutdown),
+        "remy":  lambda: (shared, signal_queue, shutdown),
+    }
+
+    # Live process registry
+    processes: dict[str, Process] = {}
+
+    def spawn_agent(name: str) -> Process:
+        shared[f"status_{name}"] = "starting"
+        p = Process(
+            target=AGENT_TARGETS[name],
+            args=AGENT_ARGS[name](),
+            name=name.capitalize(),
+            daemon=True,
+        )
+        p.start()
+        processes[name] = p
+        return p
+
+    # Ready-flag resets per agent (used when stopping/restarting)
+    _READY_FLAGS: dict[str, list[tuple]] = {
+        "kai":   [("kai_ready", False), ("broker_connected", False)],
+        "clio":  [("clio_ready", False), ("strategies_loaded", 0)],
+        "mira":  [("mira_ready", False)],
+        "finn":  [("finn_running", False)],
+        "remy":  [("remy_running", False)],
+        "larry": [("larry_running", False)],
+    }
+
+    def stop_agent(name: str):
+        p = processes.get(name)
+        if p and p.is_alive():
+            p.terminate()
+            p.join(timeout=5)
+            if p.is_alive():
+                p.kill()
+        for key, val in _READY_FLAGS.get(name, []):
+            shared[key] = val
+        shared[f"status_{name}"] = "stopped"
 
     def graceful_shutdown(signum=None, frame=None):
         print("\n\n  Shutting down all agents...")
         shutdown.set()
-        for p in reversed(processes):
-            if p.is_alive():
-                print(f"  Stopping {p.name}...")
+        for name in reversed(BOOT_ORDER):
+            p = processes.get(name)
+            if p and p.is_alive():
+                print(f"  Stopping {name.capitalize()}...")
                 p.join(timeout=10)
                 if p.is_alive():
                     p.terminate()
@@ -594,75 +678,111 @@ def main():
     sig.signal(sig.SIGINT, graceful_shutdown)
     sig.signal(sig.SIGTERM, graceful_shutdown)
 
-    # Boot agents sequentially
-    for name, target, proc_args in agents:
-        print(f"  [{name:6s}] Starting...")
-        p = Process(target=target, args=proc_args, name=name, daemon=True)
-        p.start()
-        processes.append(p)
+    # ── Boot sequence ──────────────────────────────────────────────
+    for name in BOOT_ORDER:
+        print(f"  [{name.capitalize():6s}] Starting...")
+        p = spawn_agent(name)
 
-        # Kai must be ready before others proceed
-        if name == "Kai":
+        if name == "larry":
+            # Give Flask a moment to bind, then continue regardless
+            time.sleep(1)
+            if p.is_alive():
+                print(f"  [Larry ] Running ✓  — dashboard at http://0.0.0.0:5050")
+
+        elif name == "kai":
+            # Wait up to 30s but do NOT exit if Kai fails — Larry is already up
             timeout = 30
-            start = time.time()
-            while time.time() - start < timeout:
+            start_t = time.time()
+            while time.time() - start_t < timeout:
                 if shared.get("kai_ready", False):
-                    print(f"  [{name:6s}] Ready ✓")
+                    print(f"  [Kai   ] Connected ✓")
                     break
                 if not p.is_alive():
-                    print(f"  [{name:6s}] FAILED — broker connection could not be established.")
-                    graceful_shutdown()
-                    sys.exit(1)
+                    print(f"  [Kai   ] WARNING — broker unreachable. Kai marked failed.")
+                    print(f"           Restart Kai from the web UI once the broker is available.")
+                    break
                 time.sleep(0.5)
             else:
-                print(f"  [{name:6s}] TIMEOUT — could not connect in {timeout}s.")
-                graceful_shutdown()
-                sys.exit(1)
+                print(f"  [Kai   ] WARNING — connection timeout. Kai marked failed.")
+                print(f"           Restart Kai from the web UI once the broker is available.")
 
-        # Wait for Clio to load strategies
-        elif name == "Clio":
+        elif name == "clio":
             timeout = 10
-            start = time.time()
-            while time.time() - start < timeout:
+            start_t = time.time()
+            while time.time() - start_t < timeout:
                 if shared.get("clio_ready", False):
-                    print(f"  [{name:6s}] Ready ✓ — {shared.get('strategies_loaded', 0)} strategies loaded")
+                    print(f"  [Clio  ] Ready ✓ — {shared.get('strategies_loaded', 0)} strategies loaded")
                     break
                 time.sleep(0.5)
 
-        # Small delay between other agents
         else:
             time.sleep(0.5)
             if p.is_alive():
-                print(f"  [{name:6s}] Running ✓")
+                print(f"  [{name.capitalize():6s}] Running ✓")
 
     print()
     print("=" * 64)
-    print("  ALL AGENTS RUNNING")
-    print(f"  Kai:  {'Connected' if shared.get('kai_ready') else 'Disconnected'}")
-    print(f"  Clio: {shared.get('strategies_loaded', 0)} strategies loaded")
-    print(f"  Mira: Risk monitoring active")
-    print(f"  Finn: Scanning with {shared.get('strategies_loaded', 0)} strategies")
-    print(f"  Remy: Listening for signals")
-    print(f"  Larry: Dashboard at http://localhost:5050")
+    print("  SERVICE RUNNING")
+    print(f"  Larry: http://0.0.0.0:5050")
+    print(f"  Kai:   {'Connected' if shared.get('kai_ready') else 'FAILED — restart from web UI'}")
+    print(f"  Clio:  {shared.get('strategies_loaded', 0)} strategies loaded")
     print()
     print("  Press Ctrl+C to stop all agents.")
     print("=" * 64)
 
-    # Keep main process alive
+    # ── Main loop: health monitoring + web command dispatch ────────
     try:
         while not shutdown.is_set():
-            # Monitor agent health
-            for p in processes:
-                if not p.is_alive() and not shutdown.is_set():
-                    log.warning(f"Agent {p.name} died unexpectedly (exit code {p.exitcode})")
+            # Mark processes that died unexpectedly
+            for name in BOOT_ORDER:
+                p = processes.get(name)
+                if p and not p.is_alive():
+                    current = shared.get(f"status_{name}", "")
+                    if current not in ("stopped", "failed"):
+                        code = p.exitcode
+                        shared[f"status_{name}"] = "failed" if (code is not None and code != 0) else "stopped"
+                        if not shutdown.is_set():
+                            log.warning(f"Agent {name} died (exit code {code})")
 
-            time.sleep(5)
+            # Process commands written by the web UI
+            for name in BOOT_ORDER:
+                cmd = shared.get(f"cmd_{name}", "")
+                if not cmd:
+                    continue
+                shared[f"cmd_{name}"] = ""  # clear before acting
+
+                p = processes.get(name)
+                if cmd == "start":
+                    if not p or not p.is_alive():
+                        spawn_agent(name)
+                        log.info(f"[CMD] {name}: started")
+                    else:
+                        log.info(f"[CMD] {name}: already running, ignoring start")
+                elif cmd == "stop":
+                    stop_agent(name)
+                    log.info(f"[CMD] {name}: stopped")
+                elif cmd in ("restart", "reload"):
+                    stop_agent(name)
+                    # When restarting Clio, also restart Finn so it re-consumes strategies
+                    if name == "clio":
+                        stop_agent("finn")
+                    time.sleep(0.5)
+                    spawn_agent(name)
+                    if name == "clio":
+                        time.sleep(1)
+                        spawn_agent("finn")
+                    log.info(f"[CMD] {name}: restarted")
+
+            time.sleep(1)
+
     except KeyboardInterrupt:
         graceful_shutdown()
 
-    # Wait for all processes
-    for p in processes:
-        p.join(timeout=5)
+    # Wait for all processes to exit
+    for name in BOOT_ORDER:
+        p = processes.get(name)
+        if p:
+            p.join(timeout=5)
 
     print("\n  Service stopped.\n")
 

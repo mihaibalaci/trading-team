@@ -108,6 +108,7 @@ tr:hover { background:rgba(88,166,255,0.04); }
       <button class="tab active" onclick="showTab('dashboard')">Dashboard</button>
       <button class="tab" onclick="showTab('trades')">Trade History</button>
       <button class="tab" onclick="showTab('strategies')">Strategies</button>
+      <button class="tab" onclick="showTab('agents')">Agents</button>
       <button class="tab" onclick="showTab('platform')">Platform</button>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
@@ -181,6 +182,24 @@ tr:hover { background:rgba(88,166,255,0.04); }
     <div id="strat-content"></div>
   </div>
 
+  <!-- AGENTS -->
+  <div id="sec-agents" class="section">
+    <div class="section-title">Team Agents</div>
+    <table id="agents-table">
+      <thead>
+        <tr>
+          <th>Agent</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="agents-body">
+        <tr><td colspan="4" style="color:var(--muted);padding:20px 12px;">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <!-- PLATFORM -->
   <div id="sec-platform" class="section">
     <div class="section-title">Trading Platform</div>
@@ -197,12 +216,16 @@ tr:hover { background:rgba(88,166,255,0.04); }
 </div>
 
 <script>
+let _activeTab = 'dashboard';
+
 function showTab(name) {
+  _activeTab = name;
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('sec-'+name).classList.add('active');
   event.target.classList.add('active');
-  if (name==='strategies') loadStrategies();
+  if (name === 'strategies') loadStrategies();
+  if (name === 'agents') loadAgents();
 }
 
 function fmt$(v) { return '$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -363,9 +386,53 @@ async function loadStrategies() {
   document.getElementById('strat-content').innerHTML = html;
 }
 
-// Auto-refresh every 5s
+async function loadAgents() {
+  try {
+    const agents = await fetch('/api/agents').then(r => r.json());
+    const tbody = document.getElementById('agents-body');
+    tbody.innerHTML = agents.map(a => {
+      const s = a.status;
+      const dotColor = s === 'running' ? 'green' : s === 'failed' ? 'red' : s === 'starting' ? 'yellow' : 'red';
+      const isLarry = a.name === 'larry';
+      const standalone = s === 'standalone';
+      let btns;
+      if (standalone) {
+        btns = '<span style="color:var(--muted);font-size:12px">standalone mode</span>';
+      } else if (isLarry) {
+        btns = '<span style="color:var(--muted);font-size:12px">this process</span>';
+      } else {
+        const reloadBtn = a.name === 'clio'
+          ? `<button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','reload')">Reload</button>`
+          : '';
+        btns = `
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','start')">Start</button>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','stop')">Stop</button>
+          <button class="btn btn-primary"   style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','restart')">Restart</button>
+          ${reloadBtn}`;
+      }
+      return `<tr>
+        <td><strong>${a.name.charAt(0).toUpperCase()+a.name.slice(1)}</strong></td>
+        <td style="color:var(--muted)">${a.desc}</td>
+        <td><span class="dot ${dotColor}"></span>${s}</td>
+        <td><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${btns}</div></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error('loadAgents error:', e); }
+}
+
+async function agentAction(name, action) {
+  const r = await fetch(`/api/agents/${name}/${action}`, {method:'POST'});
+  const d = await r.json();
+  if (!d.ok) alert(d.msg);
+  setTimeout(loadAgents, 1200);
+}
+
+// Auto-refresh every 5s; also refresh agents panel if it's active
 refresh();
-setInterval(refresh, 5000);
+setInterval(() => {
+  refresh();
+  if (_activeTab === 'agents') loadAgents();
+}, 5000);
 </script>
 </body>
 </html>

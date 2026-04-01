@@ -54,6 +54,10 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", secrets.token_hex(32))
 
+# Injected by service.py larry_process when running in service mode.
+# Routes read agent statuses and write commands through this reference.
+_shared = None
+
 # ─────────────────────────────────────────────────────────────────
 # In-memory state
 # ─────────────────────────────────────────────────────────────────
@@ -647,6 +651,48 @@ def _trade_dict(t: TradeRecord) -> dict:
         "duration": t.duration_min, "horizon": t.horizon,
         "asset_class": t.asset_class, "risk_level": t.risk_level,
     }
+
+
+# ─────────────────────────────────────────────────────────────────
+# Agent management routes (service mode only)
+# ─────────────────────────────────────────────────────────────────
+
+_AGENT_DESCRIPTIONS = {
+    "larry": "Web dashboard",
+    "kai":   "Broker connectivity",
+    "clio":  "Strategy loader",
+    "mira":  "Risk monitor",
+    "finn":  "Signal scanner",
+    "remy":  "Execution engine",
+}
+_AGENT_ORDER = ["larry", "kai", "clio", "mira", "finn", "remy"]
+
+
+@app.route("/api/agents")
+@login_required
+def api_agents():
+    result = []
+    for name in _AGENT_ORDER:
+        entry = {"name": name, "desc": _AGENT_DESCRIPTIONS[name]}
+        if _shared is not None:
+            entry["status"] = _shared.get(f"status_{name}", "unknown")
+        else:
+            entry["status"] = "running" if name == "larry" else "standalone"
+        result.append(entry)
+    return jsonify(result)
+
+
+@app.route("/api/agents/<name>/<action>", methods=["POST"])
+@login_required
+def api_agent_action(name, action):
+    if name not in _AGENT_DESCRIPTIONS:
+        return jsonify({"ok": False, "msg": f"Unknown agent: {name}"})
+    if action not in ("start", "stop", "restart", "reload"):
+        return jsonify({"ok": False, "msg": f"Unknown action: {action}"})
+    if _shared is None:
+        return jsonify({"ok": False, "msg": "Not running in service mode"})
+    _shared[f"cmd_{name}"] = action
+    return jsonify({"ok": True, "msg": f"{name}: {action} queued"})
 
 
 # ─────────────────────────────────────────────────────────────────
