@@ -133,15 +133,20 @@ sudo journalctl -u trading-team -f
 
 You should see:
 ```
+[Larry     ] INFO  Dashboard ready at http://localhost:5050
 [Kai       ] INFO  Starting — testing broker connection...
 [Kai       ] INFO  Connected — paper mode, equity $100,000.00
-[Clio      ] INFO  Starting — loading strategies into memory...
-[Clio      ] INFO  All 6 strategies loaded. Clio standing by.
+[Clio      ] INFO  Starting — loading and validating strategies...
+[Clio      ] INFO  Waiting for Kai (broker connection required for historical data)...
+[Clio      ] INFO  Validating: MTF-Scalp-Stocks (short/stocks/moderate)...
+[Clio      ] INFO    [PASS] MTF-Scalp-Stocks — 12 trades sim'd, WR=58.3% PF=1.62 Sharpe=1.14
+[Clio      ] INFO    → Finn queue: MTF-Scalp-Stocks
+[Clio      ] INFO  Validation complete: 5 forwarded (3 → Finn, 2 → Sage), 1 skipped.
 [Mira      ] INFO  Starting — risk monitoring active.
-[Finn      ] INFO  Dependencies ready. Loading strategies from Clio...
-[Finn      ] INFO  Loaded 6 strategies. Starting scan loop.
+[Finn      ] INFO  Loaded 3 strategies from Clio. Starting scan loop.
+[Sage      ] INFO  Loaded 2 strategies from Clio. Starting scan loop.
 [Remy      ] INFO  Kai ready. Listening for signals from Finn.
-[Larry     ] INFO  Dashboard ready at http://localhost:5050
+[Cole      ] INFO  Kai ready. Listening for signals from Sage.
 ```
 
 ### Step 10 — Access the dashboard
@@ -175,18 +180,28 @@ Change the admin password after first login.
 The service starts agents in this order. Each agent waits for its dependencies:
 
 ```
-1. Kai   (broker)     — connects to Alpaca, tests health
-                         ↓ must pass before anything else
-2. Clio  (strategies) — loads all 6 strategy profiles into memory
-                         ↓ strategies available for Finn
-3. Mira  (risk)       — starts monitoring equity and drawdown
-4. Finn  (scanner)    — waits for Kai + Clio, then scans all strategies
-                         ↓ sends valid signals to Remy
-5. Remy  (execution)  — waits for Kai, then listens for signals
-6. Larry (dashboard)  — starts Flask web UI on port 5050
+1. Larry (dashboard)  — starts Flask web UI on port 5050 immediately
+                         (dashboard stays up even if downstream agents fail)
+2. Kai   (broker)     — connects to Alpaca, tests health
+                         ↓ must pass before Clio can validate strategies
+3. Clio  (strategies) — fetches 30 days of historical bars per strategy,
+                         runs a walk-forward backtest via Mira's quality gate,
+                         then routes strategies to Finn or Sage by horizon:
+                           SHORT  → strategy_queue_finn
+                           MEDIUM/LONG → strategy_queue_sage
+4. Mira  (risk)       — starts monitoring equity and drawdown
+5. Finn  (scanner)    — consumes strategy_queue_finn; scans SHORT strategies
+                         ↓ valid signals → signal_queue_finn → Remy
+6. Sage  (scanner)    — consumes strategy_queue_sage; scans MEDIUM/LONG strategies
+                         ↓ valid signals → signal_queue_sage → Cole
+7. Remy  (execution)  — listens on signal_queue_finn; executes Finn's signals
+                         max 3 concurrent intraday positions; 2-second tick cycle
+8. Cole  (execution)  — listens on signal_queue_sage; executes Sage's signals
+                         max 2 concurrent swing positions; 5-second tick cycle
 ```
 
-If Kai fails to connect within 30 seconds, the entire service aborts.
+If Kai fails to connect, only the scanning agents are affected — the dashboard
+remains accessible and agents can be restarted from the Agents tab.
 
 ---
 
@@ -266,8 +281,10 @@ Tables: `users`, `trades`, `daily_stats`, `scanner_sessions`, `strategy_configs`
 | Dashboard not loading | Check if port 5050 is in use: `sudo ss -tlnp \| grep 5050` |
 | Permission denied | Run `sudo chown -R trader:trader /opt/trading-team` |
 | Python module not found | Run `sudo pip3 install -r /opt/trading-team/requirements.txt` |
-| No trades executing | Check if market is open. Finn only scans during session hours. |
+| No trades executing | Check if market is open. Finn and Sage only scan during session hours. |
 | Mira halted trading | Drawdown exceeded limit. Check `journalctl` for Mira's messages. |
+| Validation shows 0 trades | Normal outside market hours — strategies are forwarded with a caution flag. |
+| Strategy blocked by Mira | Quality gate failed (e.g. win rate < 40%, profit factor < 1.0). Check `/api/validation` or the Validation tab. |
 
 ---
 
