@@ -682,6 +682,22 @@ def api_agents():
     return jsonify(result)
 
 
+@app.route("/api/agents/<name>/logs")
+@login_required
+def api_agent_logs(name):
+    if name not in _AGENT_DESCRIPTIONS and name != "service":
+        return jsonify({"ok": False, "msg": f"Unknown agent: {name}"}), 404
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+    log_path = os.path.join(log_dir, f"{name}.log")
+    lines = int(request.args.get("lines", 200))
+    try:
+        with open(log_path) as f:
+            all_lines = f.readlines()
+        return jsonify({"ok": True, "lines": all_lines[-lines:]})
+    except FileNotFoundError:
+        return jsonify({"ok": True, "lines": []})
+
+
 @app.route("/api/agents/<name>/<action>", methods=["POST"])
 @login_required
 def api_agent_action(name, action):

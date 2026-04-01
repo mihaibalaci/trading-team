@@ -27,18 +27,51 @@ import argparse
 import signal as sig
 import time
 import logging
+import logging.handlers
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Event
 from multiprocessing.managers import SyncManager
 from datetime import datetime, date, time as dtime
 from typing import Optional
 
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+_LOG_FORMAT  = "%(asctime)s [%(levelname)-8s] %(name)s — %(message)s"
+_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(processName)-10s] %(levelname)s  %(message)s",
-    datefmt="%H:%M:%S",
+    format=_LOG_FORMAT,
+    datefmt=_LOG_DATEFMT,
 )
 log = logging.getLogger("service")
+
+# Orchestrator log file
+_svc_handler = logging.handlers.RotatingFileHandler(
+    os.path.join(LOG_DIR, "service.log"),
+    maxBytes=5 * 1024 * 1024,
+    backupCount=5,
+)
+_svc_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+logging.getLogger().addHandler(_svc_handler)
+
+
+def _setup_agent_log(agent_name: str) -> logging.Logger:
+    """
+    Call at the top of each agent process.
+    Returns the agent's logger with a dedicated rotating file handler.
+    stdout output is preserved (via inherited basicConfig).
+    """
+    logger = logging.getLogger(agent_name.capitalize())
+    fh = logging.handlers.RotatingFileHandler(
+        os.path.join(LOG_DIR, f"{agent_name.lower()}.log"),
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
+    )
+    fh.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+    logger.addHandler(fh)
+    return logger
 
 # ─────────────────────────────────────────────────────────────────
 # Shared state via Manager
@@ -91,7 +124,7 @@ def kai_process(shared: dict, shutdown: Event):
     every 30s. Sets shared['kai_ready'] = True when connected.
     If connection drops, sets kai_ready = False (halts Finn/Remy).
     """
-    proc_log = logging.getLogger("Kai")
+    proc_log = _setup_agent_log("kai")
     shared["status_kai"] = "starting"
     proc_log.info("Starting — testing broker connection...")
 
@@ -162,7 +195,7 @@ def clio_process(shared: dict, strategy_queue: Queue, shutdown: Event):
     Clio loads all strategy profiles into memory and pushes them
     to the strategy_queue for Finn to consume.
     """
-    proc_log = logging.getLogger("Clio")
+    proc_log = _setup_agent_log("clio")
     shared["status_clio"] = "starting"
     proc_log.info("Starting — loading strategies into memory...")
 
@@ -214,7 +247,7 @@ def mira_process(shared: dict, shutdown: Event):
     Mira monitors portfolio risk continuously.
     Sets shared['mira_halt'] = True if drawdown exceeds limits.
     """
-    proc_log = logging.getLogger("Mira")
+    proc_log = _setup_agent_log("mira")
     shared["status_mira"] = "starting"
     proc_log.info("Starting — risk monitoring active.")
     shared["mira_ready"] = True
@@ -265,7 +298,7 @@ def finn_process(shared: dict, strategy_queue: Queue, signal_queue: Queue, shutd
     Finn consumes strategy profiles from Clio, then runs continuous
     scans across all strategies. Valid signals go to signal_queue for Remy.
     """
-    proc_log = logging.getLogger("Finn")
+    proc_log = _setup_agent_log("finn")
     shared["status_finn"] = "starting"
     proc_log.info("Starting — waiting for Kai and Clio...")
 
@@ -397,7 +430,7 @@ def remy_process(shared: dict, signal_queue: Queue, shutdown: Event):
     Remy listens for signals from Finn and executes them.
     Manages the full trade lifecycle for each accepted signal.
     """
-    proc_log = logging.getLogger("Remy")
+    proc_log = _setup_agent_log("remy")
     shared["status_remy"] = "starting"
     proc_log.info("Starting — waiting for Kai...")
 
@@ -533,7 +566,7 @@ def larry_process(shared: dict, shutdown: Event):
     """
     Larry runs the Flask web dashboard. Reads shared state for display.
     """
-    proc_log = logging.getLogger("Larry")
+    proc_log = _setup_agent_log("larry")
     shared["status_larry"] = "starting"
     proc_log.info("Starting web dashboard on port 5050...")
 

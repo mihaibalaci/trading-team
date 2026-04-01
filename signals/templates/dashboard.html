@@ -198,6 +198,23 @@ tr:hover { background:rgba(88,166,255,0.04); }
         <tr><td colspan="4" style="color:var(--muted);padding:20px 12px;">Loading...</td></tr>
       </tbody>
     </table>
+
+    <div style="margin-top:32px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <div class="section-title" style="margin:0">Logs</div>
+        <select id="log-agent-select" style="padding:6px 10px;border-radius:6px;background:var(--surface);color:var(--text);border:1px solid var(--border);font-size:13px;" onchange="loadAgentLogs()">
+          <option value="service">service (orchestrator)</option>
+          <option value="larry">larry</option>
+          <option value="kai">kai</option>
+          <option value="clio">clio</option>
+          <option value="mira">mira</option>
+          <option value="finn">finn</option>
+          <option value="remy">remy</option>
+        </select>
+        <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px" onclick="loadAgentLogs()">Refresh</button>
+      </div>
+      <pre id="log-viewer" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;font-size:12px;line-height:1.6;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;color:var(--muted)">Select an agent above to view logs.</pre>
+    </div>
   </div>
 
   <!-- PLATFORM -->
@@ -425,6 +442,18 @@ async function agentAction(name, action) {
   const d = await r.json();
   if (!d.ok) alert(d.msg);
   setTimeout(loadAgents, 1200);
+}
+
+async function loadAgentLogs() {
+  const name = document.getElementById('log-agent-select').value;
+  const viewer = document.getElementById('log-viewer');
+  try {
+    const d = await fetch(`/api/agents/${name}/logs?lines=200`).then(r => r.json());
+    if (!d.ok) { viewer.textContent = d.msg; return; }
+    if (!d.lines.length) { viewer.textContent = '(no log entries yet)'; return; }
+    viewer.textContent = d.lines.join('');
+    viewer.scrollTop = viewer.scrollHeight;
+  } catch(e) { viewer.textContent = 'Error fetching logs: ' + e; }
 }
 
 // Auto-refresh every 5s; also refresh agents panel if it's active
