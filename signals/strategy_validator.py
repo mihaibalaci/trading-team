@@ -43,18 +43,20 @@ def _fetch_bars_hist(connector, symbol: str, timeframe_minutes: int, limit: int,
 
     start = datetime.now(timezone.utc) - timedelta(days=days_back)
     req = StockBarsRequest(
-        symbol_or_symbols=symbol,
+        symbol_or_symbols=[symbol],   # list form required for start= to work
         timeframe=tf,
         start=start,
         limit=limit,
     )
     bars = connector._data.get_stock_bars(req)
 
-    if symbol not in bars or len(bars[symbol]) == 0:
+    # BarSet may be keyed via .data when using list form
+    bar_data = bars.data if hasattr(bars, "data") else bars
+    if symbol not in bar_data or len(bar_data[symbol]) == 0:
         return pd.DataFrame()
 
     rows = []
-    for b in bars[symbol]:
+    for b in bar_data[symbol]:
         rows.append({
             "open":   float(b.open),
             "high":   float(b.high),
