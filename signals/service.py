@@ -34,7 +34,7 @@ from multiprocessing.managers import SyncManager
 from datetime import datetime, date, time as dtime
 from typing import Optional
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 _LOG_FORMAT  = "%(asctime)s [%(levelname)-8s] %(name)s — %(message)s"
