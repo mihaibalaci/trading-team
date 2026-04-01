@@ -662,10 +662,12 @@ _AGENT_DESCRIPTIONS = {
     "kai":   "Broker connectivity",
     "clio":  "Strategy loader",
     "mira":  "Risk monitor",
-    "finn":  "Signal scanner",
-    "remy":  "Execution engine",
+    "finn":  "Signal scanner — scalp/intraday (SHORT)",
+    "sage":  "Signal scanner — swing/positional (MEDIUM/LONG)",
+    "remy":  "Execution engine — intraday (max 3 positions)",
+    "cole":  "Execution engine — swing (max 2 positions)",
 }
-_AGENT_ORDER = ["larry", "kai", "clio", "mira", "finn", "remy"]
+_AGENT_ORDER = ["larry", "kai", "clio", "mira", "finn", "sage", "remy", "cole"]
 
 
 @app.route("/api/agents")
