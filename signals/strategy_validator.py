@@ -72,11 +72,11 @@ def _fetch_bars_hist(connector, symbol: str, timeframe_minutes: int, limit: int,
 # ── Tuning constants ──────────────────────────────────────────────────────────
 
 # Symbols tested per strategy (limits API calls at startup)
-SYMBOLS_TO_SAMPLE = 2
+SYMBOLS_TO_SAMPLE = 4
 
 # How many multiples of the live bar count to fetch for history
 HISTORY_MULTIPLIER = 5
-MAX_BARS_PER_FETCH  = 500   # Alpaca hard cap per call
+MAX_BARS_PER_FETCH  = 1000  # Alpaca returns up to 10000; cap at 1000 for startup speed
 
 # How many setup-TF bars to look forward for exit simulation
 MAX_EXIT_BARS = 20
@@ -213,12 +213,12 @@ def validate_strategy(
     bars_setup = min(profile.bars_setup * HISTORY_MULTIPLIER, MAX_BARS_PER_FETCH)
     bars_entry = min(profile.bars_entry * HISTORY_MULTIPLIER, MAX_BARS_PER_FETCH)
 
-    # Days of history to cover for each timeframe
-    # 1440 intraday minutes per day; add 40% buffer for weekends/holidays
+    # Days of history to cover for each timeframe.
+    # Use a 2x buffer (weekends, holidays, pre/post-market gaps, volatile weeks).
     def _days_needed(tf_min: int, n_bars: int) -> int:
         trading_minutes_per_day = 390   # 6.5-hour US session
         bars_per_day = max(1, trading_minutes_per_day // tf_min)
-        return max(14, int(n_bars / bars_per_day * 1.4) + 5)
+        return max(30, int(n_bars / bars_per_day * 2.0) + 5)
 
     all_trades   = []
     symbols_ok   = []
@@ -259,8 +259,10 @@ def validate_strategy(
 
             # ── Rolling window ────────────────────────────────────────────
             # Use setup TF as primary reference; map proportionally to others.
-            # Step half a setup-window each iteration to avoid overlap.
-            step = max(profile.bars_setup // 2, 5)
+            # Step one-quarter of a setup-window each iteration.
+            step = max(profile.bars_setup // 4, 5)
+
+            n_windows = n_signals = n_no_signal = n_weak = n_traded = 0
 
             for i in range(profile.bars_setup, ns - MAX_EXIT_BARS, step):
                 # Setup slice: most recent profile.bars_setup bars at position i
@@ -282,6 +284,7 @@ def validate_strategy(
                         len(slice_entry) < 50):
                     continue
 
+                n_windows += 1
                 swing_high = float(slice_trend["high"].tail(20).max())
                 swing_low  = float(slice_trend["low"].tail(20).min())
 
@@ -303,10 +306,16 @@ def validate_strategy(
                     continue
 
                 if not signal or signal.invalidated:
+                    n_no_signal += 1
                     continue
+
+                n_signals += 1
+
                 if signal.signal_strength < profile.min_signal_strength:
+                    n_weak += 1
                     continue
                 if signal.confluence_score < profile.min_confluence:
+                    n_weak += 1
                     continue
 
                 # Simulate exit on the forward setup bars
@@ -314,6 +323,11 @@ def validate_strategy(
                 trade = _simulate_exit(signal, forward)
                 if trade:
                     all_trades.append(trade)
+                    n_traded += 1
+
+            log.info(f"[Validator] {strategy_name}/{symbol}: "
+                     f"{n_windows} windows → {n_signals} signals "
+                     f"({n_no_signal} no-signal, {n_weak} weak) → {n_traded} trades")
 
         except Exception as e:
             issues.append(f"{symbol}: {e}")
