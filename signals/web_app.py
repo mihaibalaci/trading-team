@@ -684,6 +684,21 @@ def api_agents():
     return jsonify(result)
 
 
+@app.route("/api/validation")
+@login_required
+def api_validation():
+    import json
+    if _shared is None:
+        return jsonify({"ok": False, "done": False, "results": []})
+    done    = _shared.get("validation_done", False)
+    raw     = _shared.get("validation_results", "[]")
+    try:
+        results = json.loads(raw)
+    except Exception:
+        results = []
+    return jsonify({"ok": True, "done": done, "results": results})
+
+
 @app.route("/api/agents/<name>/logs")
 @login_required
 def api_agent_logs(name):

@@ -116,6 +116,9 @@ def create_shared_state(manager: SyncManager) -> dict:
         # Per-executor active position counts (used by scanners for open risk calc)
         "remy_active": 0,
         "cole_active": 0,
+        # Validation results: JSON-encoded list of ValidationResult.to_dict()
+        "validation_results": "[]",
+        "validation_done": False,
         # Sage and Cole lifecycle
         "sage_running": False,
         "cole_running": False,
@@ -202,18 +205,23 @@ def kai_process(shared: dict, shutdown: Event):
 
 def clio_process(shared: dict, strategy_queue_finn: Queue, strategy_queue_sage: Queue, shutdown: Event):
     """
-    Clio loads all strategy profiles and routes them by horizon:
-      SHORT  → strategy_queue_finn  (consumed by Finn)
-      MEDIUM/LONG → strategy_queue_sage (consumed by Sage)
+    Clio loads all strategy profiles, validates each with Mira's quality gate
+    on live historical data, then routes passing strategies by horizon:
+      SHORT       → strategy_queue_finn  (consumed by Finn)
+      MEDIUM/LONG → strategy_queue_sage  (consumed by Sage)
+    Strategies that fail validation are logged and not forwarded.
     """
     proc_log = _setup_agent_log("clio")
     shared["status_clio"] = "starting"
-    proc_log.info("Starting — loading strategies into memory...")
+    proc_log.info("Starting — loading and validating strategies...")
 
     from strategy_config import (
         Horizon, AssetClass, RiskLevel, build_profile,
         WATCHLISTS, TIMEFRAME_CONFIG, RISK_CONFIG,
     )
+    from strategy_validator import validate_strategy
+    from broker_connector import connect
+    import json
 
     STRATEGY_PRESETS = [
         # (name, horizon, asset_class, risk_level)
@@ -225,23 +233,86 @@ def clio_process(shared: dict, strategy_queue_finn: Queue, strategy_queue_sage: 
         ("Position-Stocks",         Horizon.LONG,   AssetClass.STOCKS,      RiskLevel.CONSERVATIVE),
     ]
 
-    finn_count = sage_count = 0
+    # Wait for Kai before making broker calls
+    proc_log.info("Waiting for Kai (broker connection required for historical data)...")
+    while not shutdown.is_set():
+        if shared.get("kai_ready"):
+            break
+        time.sleep(1)
+
+    if shutdown.is_set():
+        return
+
+    connector = connect()
+    validation_results = []
+    finn_count = sage_count = skipped = 0
+
     for name, horizon, asset_class, risk_level in STRATEGY_PRESETS:
+        if shutdown.is_set():
+            break
+
         profile = build_profile(horizon, asset_class, risk_level)
+        proc_log.info(f"Validating: {name} ({horizon.value}/{asset_class.value}/{risk_level.value})...")
+
+        try:
+            result = validate_strategy(
+                strategy_name=name,
+                profile=profile,
+                connector=connector,
+                equity=shared.get("equity", 100_000),
+            )
+            validation_results.append(result.to_dict())
+
+            status = "PASS" if result.passed else "FAIL"
+            proc_log.info(
+                f"  [{status}] {name} — {result.trades_sim} trades sim'd, "
+                f"WR={result.win_rate:.1%} PF={result.profit_factor:.2f} "
+                f"Sharpe={result.sharpe_ratio:.2f} | {result.reason}"
+            )
+            if result.summary:
+                for line in result.summary.splitlines():
+                    proc_log.debug(f"    {line}")
+
+        except Exception as e:
+            proc_log.error(f"  [ERROR] {name} validation failed: {e}")
+            validation_results.append({
+                "strategy": name, "passed": False,
+                "reason": f"Validation error: {e}",
+                "trades_sim": 0, "win_rate": 0, "profit_factor": 0,
+                "expectancy_r": 0, "sharpe_ratio": 0, "max_drawdown_pct": 0,
+                "symbols_tested": [], "issues": [str(e)],
+            })
+            result_passed = False
+            skipped += 1
+            continue
+
+        if not result.passed:
+            proc_log.warning(f"  Strategy '{name}' did not pass Mira's quality gate — not forwarding to live scanner.")
+            skipped += 1
+            continue
+
         if horizon == Horizon.SHORT:
             strategy_queue_finn.put((name, profile))
             finn_count += 1
-            proc_log.info(f"  → Finn: {name} ({horizon.value}/{asset_class.value}/{risk_level.value})")
+            proc_log.info(f"  → Finn queue: {name}")
         else:
             strategy_queue_sage.put((name, profile))
             sage_count += 1
-            proc_log.info(f"  → Sage: {name} ({horizon.value}/{asset_class.value}/{risk_level.value})")
+            proc_log.info(f"  → Sage queue: {name}")
 
-    total = finn_count + sage_count
-    shared["strategies_loaded"] = total
+    # Store results in shared state (JSON string — Manager dicts don't support nested objects)
+    shared["validation_results"] = json.dumps(validation_results)
+    shared["validation_done"] = True
+
+    total_forwarded = finn_count + sage_count
+    shared["strategies_loaded"] = total_forwarded
     shared["clio_ready"] = True
     shared["status_clio"] = "running"
-    proc_log.info(f"All {total} strategies distributed ({finn_count} → Finn, {sage_count} → Sage). Clio standing by.")
+    proc_log.info(
+        f"Validation complete: {total_forwarded} forwarded "
+        f"({finn_count} → Finn, {sage_count} → Sage), "
+        f"{skipped} skipped. Clio standing by."
+    )
 
     while not shutdown.is_set():
         shutdown.wait(60)

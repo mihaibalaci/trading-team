@@ -109,6 +109,7 @@ tr:hover { background:rgba(88,166,255,0.04); }
       <button class="tab" onclick="showTab('trades')">Trade History</button>
       <button class="tab" onclick="showTab('strategies')">Strategies</button>
       <button class="tab" onclick="showTab('agents')">Agents</button>
+      <button class="tab" onclick="showTab('validation')">Validation</button>
       <button class="tab" onclick="showTab('platform')">Platform</button>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
@@ -182,6 +183,16 @@ tr:hover { background:rgba(88,166,255,0.04); }
     <div id="strat-content"></div>
   </div>
 
+  <!-- VALIDATION -->
+  <div id="sec-validation" class="section">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+      <div class="section-title" style="margin:0">Strategy Validation — Clio &amp; Mira</div>
+      <span id="val-status" style="font-size:12px;color:var(--muted)">Loading...</span>
+      <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;margin-left:auto" onclick="loadValidation()">Refresh</button>
+    </div>
+    <div id="val-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;"></div>
+  </div>
+
   <!-- AGENTS -->
   <div id="sec-agents" class="section">
     <div class="section-title">Team Agents</div>
@@ -243,6 +254,7 @@ function showTab(name) {
   event.target.classList.add('active');
   if (name === 'strategies') loadStrategies();
   if (name === 'agents') loadAgents();
+  if (name === 'validation') loadValidation();
 }
 
 function fmt$(v) { return '$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -442,6 +454,44 @@ async function agentAction(name, action) {
   const d = await r.json();
   if (!d.ok) alert(d.msg);
   setTimeout(loadAgents, 1200);
+}
+
+async function loadValidation() {
+  try {
+    const d = await fetch('/api/validation').then(r => r.json());
+    const statusEl = document.getElementById('val-status');
+    const cardsEl  = document.getElementById('val-cards');
+    if (!d.ok) { statusEl.textContent = 'Not in service mode'; return; }
+    statusEl.textContent = d.done ? 'Validation complete' : 'Validation in progress...';
+    if (!d.results || !d.results.length) {
+      cardsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;">No validation results yet. Clio runs validation at startup after Kai connects.</div>';
+      return;
+    }
+    cardsEl.innerHTML = d.results.map(r => {
+      const passColor  = r.passed ? 'var(--green)' : 'var(--red)';
+      const passLabel  = r.passed ? '✓ PASS' : '✗ FAIL';
+      const rows = [
+        ['Simulated Trades', r.trades_sim],
+        ['Win Rate',         r.trades_sim ? (r.win_rate*100).toFixed(1)+'%' : '—'],
+        ['Profit Factor',    r.trades_sim ? r.profit_factor.toFixed(2) : '—'],
+        ['Expectancy',       r.trades_sim ? r.expectancy_r.toFixed(3)+'R' : '—'],
+        ['Sharpe',           r.trades_sim ? r.sharpe_ratio.toFixed(2) : '—'],
+        ['Max Drawdown',     r.trades_sim ? r.max_drawdown_pct.toFixed(1)+'%' : '—'],
+        ['Symbols Tested',   r.symbols_tested.join(', ') || '—'],
+      ].map(([k,v]) => `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`).join('');
+      const issuesHtml = r.issues && r.issues.length
+        ? `<div style="font-size:11px;color:var(--red);margin-top:8px;">${r.issues.map(i=>'⚠ '+i).join('<br>')}</div>` : '';
+      return `<div class="platform-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <strong style="font-size:14px">${r.strategy}</strong>
+          <span style="font-size:13px;font-weight:700;color:${passColor}">${passLabel}</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">${r.reason}</div>
+        ${rows}
+        ${issuesHtml}
+      </div>`;
+    }).join('');
+  } catch(e) { console.error('loadValidation error:', e); }
 }
 
 async function loadAgentLogs() {
