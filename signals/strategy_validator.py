@@ -13,11 +13,59 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import numpy as np
 
 log = logging.getLogger(__name__)
+
+
+# ── Historical bar fetch (used only by validator) ─────────────────────────────
+
+def _fetch_bars_hist(connector, symbol: str, timeframe_minutes: int, limit: int,
+                     days_back: int = 30) -> pd.DataFrame:
+    """
+    Fetch historical bars using an explicit date range so results are returned
+    even when the market is currently closed (unlike limit-only requests).
+    """
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+    if timeframe_minutes == 1:
+        tf = TimeFrame.Minute
+    elif timeframe_minutes == 15:
+        tf = TimeFrame(15, TimeFrameUnit.Minute)
+    elif timeframe_minutes == 30:
+        tf = TimeFrame(30, TimeFrameUnit.Minute)
+    else:
+        tf = TimeFrame(timeframe_minutes, TimeFrameUnit.Minute)
+
+    start = datetime.now(timezone.utc) - timedelta(days=days_back)
+    req = StockBarsRequest(
+        symbol_or_symbols=symbol,
+        timeframe=tf,
+        start=start,
+        limit=limit,
+    )
+    bars = connector._data.get_stock_bars(req)
+
+    if symbol not in bars or len(bars[symbol]) == 0:
+        return pd.DataFrame()
+
+    rows = []
+    for b in bars[symbol]:
+        rows.append({
+            "open":   float(b.open),
+            "high":   float(b.high),
+            "low":    float(b.low),
+            "close":  float(b.close),
+            "volume": float(b.volume),
+        })
+    df = pd.DataFrame(rows)
+    df.index = pd.RangeIndex(len(df))   # numeric index — same as live fetch_bars
+    return df
+
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
 
@@ -142,7 +190,7 @@ def validate_strategy(
       5. Collect completed trade dicts → run_backtest()
       6. Apply Mira's quality gate (with trade-count threshold relaxed)
     """
-    from live_scanner import fetch_bars, fetch_prev_day_levels
+    from live_scanner import fetch_prev_day_levels
     from signal_engine import generate_signal
     from backtest import run_backtest
 
@@ -163,15 +211,25 @@ def validate_strategy(
     bars_setup = min(profile.bars_setup * HISTORY_MULTIPLIER, MAX_BARS_PER_FETCH)
     bars_entry = min(profile.bars_entry * HISTORY_MULTIPLIER, MAX_BARS_PER_FETCH)
 
+    # Days of history to cover for each timeframe
+    # 1440 intraday minutes per day; add 40% buffer for weekends/holidays
+    def _days_needed(tf_min: int, n_bars: int) -> int:
+        trading_minutes_per_day = 390   # 6.5-hour US session
+        bars_per_day = max(1, trading_minutes_per_day // tf_min)
+        return max(14, int(n_bars / bars_per_day * 1.4) + 5)
+
     all_trades   = []
     symbols_ok   = []
     issues       = []
 
     for symbol in symbols:
         try:
-            df_trend = fetch_bars(connector, symbol, profile.tf_trend_min, bars_trend)
-            df_setup = fetch_bars(connector, symbol, profile.tf_setup_min, bars_setup)
-            df_entry = fetch_bars(connector, symbol, profile.tf_entry_min, bars_entry)
+            df_trend = _fetch_bars_hist(connector, symbol, profile.tf_trend_min, bars_trend,
+                                        days_back=_days_needed(profile.tf_trend_min, bars_trend))
+            df_setup = _fetch_bars_hist(connector, symbol, profile.tf_setup_min, bars_setup,
+                                        days_back=_days_needed(profile.tf_setup_min, bars_setup))
+            df_entry = _fetch_bars_hist(connector, symbol, profile.tf_entry_min, bars_entry,
+                                        days_back=_days_needed(profile.tf_entry_min, bars_entry))
 
             if df_trend.empty or df_setup.empty or df_entry.empty:
                 issues.append(f"{symbol}: no bar data returned")
