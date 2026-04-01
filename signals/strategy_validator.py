@@ -38,14 +38,22 @@ def _fetch_bars_hist(connector, symbol: str, timeframe_minutes: int, limit: int,
         tf = TimeFrame(15, TimeFrameUnit.Minute)
     elif timeframe_minutes == 30:
         tf = TimeFrame(30, TimeFrameUnit.Minute)
+    elif timeframe_minutes == 60:
+        tf = TimeFrame.Hour
+    elif timeframe_minutes == 240:
+        tf = TimeFrame(4, TimeFrameUnit.Hour)
     else:
         tf = TimeFrame(timeframe_minutes, TimeFrameUnit.Minute)
 
-    start = datetime.now(timezone.utc) - timedelta(days=days_back)
+    # Target a window that ends ~30 days ago to avoid very-recent volatile periods
+    # and starts `days_back` before that, giving the signal engine a chance to find trends.
+    end   = datetime.now(timezone.utc) - timedelta(days=30)
+    start = end - timedelta(days=days_back)
     req = StockBarsRequest(
         symbol_or_symbols=[symbol],   # list form required for start= to work
         timeframe=tf,
         start=start,
+        end=end,
         limit=limit,
     )
     bars = connector._data.get_stock_bars(req)
