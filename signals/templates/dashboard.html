@@ -230,15 +230,12 @@ tr:hover { background:rgba(88,166,255,0.04); }
 
   <!-- PLATFORM -->
   <div id="sec-platform" class="section">
-    <div class="section-title">Trading Platform</div>
-    <div class="platform-card" id="platform-card">
-      <div class="row"><span class="k">Platform</span><span>—</span></div>
-      <div class="row"><span class="k">Mode</span><span>—</span></div>
-      <div class="row"><span class="k">Status</span><span>—</span></div>
-      <div class="row"><span class="k">Equity</span><span>—</span></div>
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+      <div class="section-title" style="margin:0">Trading Platforms</div>
+      <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;margin-left:auto" onclick="loadPlatforms()">Refresh</button>
     </div>
-    <div class="btn-row" style="margin-top:16px;">
-      <button class="btn btn-secondary" onclick="checkBroker()">Test Connection</button>
+    <div id="platform-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px;">
+      <div style="color:var(--muted);padding:20px;">Loading...</div>
     </div>
   </div>
 </div>
@@ -255,6 +252,7 @@ function showTab(name) {
   if (name === 'strategies') loadStrategies();
   if (name === 'agents') loadAgents();
   if (name === 'validation') loadValidation();
+  if (name === 'platform') loadPlatforms();
 }
 
 function fmt$(v) { return '$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -378,6 +376,77 @@ async function stopOne(id) {
 async function checkBroker() {
   await fetch('/api/broker/check', {method:'POST'});
   refresh();
+}
+
+async function loadPlatforms() {
+  const grid = document.getElementById('platform-grid');
+  try {
+    const platforms = await fetch('/api/platforms').then(r => r.json());
+    grid.innerHTML = platforms.map(p => {
+      const statusColor = p.status === 'connected' ? 'var(--green)'
+                        : p.status.startsWith('error') ? 'var(--red)'
+                        : p.status === 'connecting' ? 'var(--yellow, #f5a623)'
+                        : 'var(--muted)';
+      const statusDot = p.status === 'connected' ? 'green'
+                      : p.status.startsWith('error') ? 'red' : '';
+      const isActive = p.active;
+      const isConnected = p.status === 'connected';
+      const isConnecting = p.status === 'connecting';
+
+      const extraRows = p.id === 'mt5' && p.login
+        ? `<div class="row"><span class="k">Account</span><span>${p.login}</span></div>
+           <div class="row"><span class="k">Server</span><span>${p.server || '—'}</span></div>`
+        : '';
+
+      const connectBtn = !isConnected && !isConnecting && p.configured
+        ? `<button class="btn btn-primary" style="padding:6px 14px;font-size:12px" onclick="platformAction('${p.id}','connect')">Connect</button>`
+        : '';
+      const connectingBtn = isConnecting
+        ? `<button class="btn btn-secondary" style="padding:6px 14px;font-size:12px" disabled>Connecting...</button>`
+        : '';
+      const disconnectBtn = isConnected
+        ? `<button class="btn btn-danger" style="padding:6px 14px;font-size:12px" onclick="platformAction('${p.id}','disconnect')">Disconnect</button>`
+        : '';
+      const notConfigured = !p.configured
+        ? `<span style="font-size:12px;color:var(--muted)">Not configured in .env</span>`
+        : '';
+
+      return `<div class="platform-card" style="${isActive ? 'border:1px solid var(--green);' : ''}">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <strong style="font-size:15px">${p.name}</strong>
+          ${isActive ? '<span style="font-size:11px;background:var(--green);color:#000;padding:2px 8px;border-radius:10px;">ACTIVE</span>' : ''}
+        </div>
+        <div class="row"><span class="k">Type</span><span>${p.type}</span></div>
+        <div class="row"><span class="k">Mode</span><span>${p.mode.toUpperCase()}</span></div>
+        ${extraRows}
+        <div class="row"><span class="k">Status</span><span>${statusDot ? `<span class="dot ${statusDot}"></span>` : ''}${p.status.replace('error:','Error: ')}</span></div>
+        ${isConnected ? `<div class="row"><span class="k">Equity</span><span>${fmt$(p.equity)}</span></div>` : ''}
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+          ${connectBtn}${connectingBtn}${disconnectBtn}${notConfigured}
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    grid.innerHTML = `<div style="color:var(--muted)">Failed to load platforms: ${e}</div>`;
+  }
+}
+
+async function platformAction(platformId, action) {
+  const res = await fetch(`/api/platforms/${platformId}/${action}`, {method:'POST'}).then(r => r.json());
+  if (!res.ok) { alert(res.msg); return; }
+  setTimeout(loadPlatforms, 800);
+  if (action === 'connect') {
+    // Poll until connected or errored (up to 45s)
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      await loadPlatforms();
+      attempts++;
+      const grid = document.getElementById('platform-grid');
+      const connected = grid && grid.innerHTML.includes('ACTIVE');
+      const errored   = grid && grid.innerHTML.includes('Error:');
+      if (connected || errored || attempts > 45) clearInterval(poll);
+    }, 1000);
+  }
 }
 
 async function doLogout() {

@@ -715,6 +715,89 @@ def api_agent_logs(name):
         return jsonify({"ok": True, "lines": []})
 
 
+@app.route("/api/platforms")
+@login_required
+def api_platforms():
+    """
+    Return status of all configured platforms (Alpaca + MT5).
+    Reads live state from shared multiprocessing dict when in service mode.
+    """
+    import os as _os
+    from dotenv import dotenv_values
+    env = dotenv_values(_os.path.join(_os.path.dirname(__file__), ".env"))
+
+    alpaca_configured = bool(env.get("ALPACA_API_KEY", "").strip())
+    mt5_configured    = bool(env.get("MT5_LOGIN", "").strip() and
+                             env.get("MT5_PASSWORD", "").strip() and
+                             env.get("MT5_SERVER", "").strip())
+
+    platforms = []
+
+    # ── Alpaca ────────────────────────────────────────────────────────
+    alpaca_status = "disconnected"
+    if _shared is not None:
+        alpaca_status = _shared.get("platform_alpaca_status", "disconnected")
+    elif alpaca_configured:
+        alpaca_status = "configured"
+
+    platforms.append({
+        "id":          "alpaca",
+        "name":        "Alpaca",
+        "type":        "Stock / Crypto broker",
+        "mode":        env.get("TRADING_MODE", "paper") if not env.get("TRADING_MODE","").startswith("mt5") else "paper",
+        "status":      alpaca_status,
+        "configured":  alpaca_configured,
+        "active":      _shared.get("active_platform", "") == "alpaca" if _shared else False,
+        "equity":      _shared.get("equity", 0.0) if (_shared and _shared.get("active_platform","") == "alpaca") else 0.0,
+    })
+
+    # ── MetaTrader 5 ──────────────────────────────────────────────────
+    mt5_status = "disconnected"
+    if _shared is not None:
+        mt5_status = _shared.get("platform_mt5_status", "disconnected")
+    elif mt5_configured:
+        mt5_status = "configured"
+
+    mt5_server = env.get("MT5_SERVER", "")
+    platforms.append({
+        "id":          "mt5",
+        "name":        "MetaTrader 5",
+        "type":        "CFD / Forex / Stocks",
+        "mode":        "demo" if not env.get("TRADING_MODE","").endswith("live") else "live",
+        "status":      mt5_status,
+        "configured":  mt5_configured,
+        "active":      _shared.get("active_platform", "") == "mt5" if _shared else False,
+        "equity":      _shared.get("equity", 0.0) if (_shared and _shared.get("active_platform","") == "mt5") else 0.0,
+        "server":      mt5_server,
+        "login":       env.get("MT5_LOGIN", ""),
+    })
+
+    return jsonify(platforms)
+
+
+@app.route("/api/platforms/<platform_id>/connect", methods=["POST"])
+@login_required
+def api_platform_connect(platform_id):
+    if platform_id not in ("alpaca", "mt5"):
+        return jsonify({"ok": False, "msg": f"Unknown platform: {platform_id}"}), 400
+    if _shared is None:
+        return jsonify({"ok": False, "msg": "Not running in service mode"})
+    _shared[f"cmd_platform_{platform_id}"] = "connect"
+    _shared[f"platform_{platform_id}_status"] = "connecting"
+    return jsonify({"ok": True, "msg": f"Connecting to {platform_id}..."})
+
+
+@app.route("/api/platforms/<platform_id>/disconnect", methods=["POST"])
+@login_required
+def api_platform_disconnect(platform_id):
+    if platform_id not in ("alpaca", "mt5"):
+        return jsonify({"ok": False, "msg": f"Unknown platform: {platform_id}"}), 400
+    if _shared is None:
+        return jsonify({"ok": False, "msg": "Not running in service mode"})
+    _shared[f"cmd_platform_{platform_id}"] = "disconnect"
+    return jsonify({"ok": True, "msg": f"Disconnecting from {platform_id}..."})
+
+
 @app.route("/api/agents/<name>/<action>", methods=["POST"])
 @login_required
 def api_agent_action(name, action):

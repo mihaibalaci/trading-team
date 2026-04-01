@@ -124,6 +124,15 @@ def create_shared_state(manager: SyncManager) -> dict:
         "cole_running": False,
         "status_sage": "stopped",
         "status_cole": "stopped",
+        # Platform connection status for each configured broker
+        # Values: "disconnected" | "connecting" | "connected" | "error:<msg>"
+        "platform_alpaca_status": "disconnected",
+        "platform_mt5_status":    "disconnected",
+        # Active trading platform ("alpaca" or "mt5")
+        "active_platform": "",
+        # Web UI platform commands: "connect" or "disconnect"
+        "cmd_platform_alpaca": "",
+        "cmd_platform_mt5":    "",
     })
 
 
@@ -973,6 +982,17 @@ def main():
     # Shared state and queues
     manager = mp.Manager()
     shared = create_shared_state(manager)
+
+    # Detect initial active platform from .env
+    try:
+        from dotenv import dotenv_values
+        _env_vals = dotenv_values(os.path.join(os.path.dirname(__file__), ".env"))
+        _mode = _env_vals.get("TRADING_MODE", "paper").strip().lower()
+        _initial_platform = "mt5" if _mode.startswith("mt5") else "alpaca"
+        shared["active_platform"] = _initial_platform
+        shared[f"platform_{_initial_platform}_status"] = "connecting"
+    except Exception:
+        shared["active_platform"] = "alpaca"
     strategy_queue_finn = Queue()   # Clio → Finn  (SHORT strategies)
     strategy_queue_sage = Queue()   # Clio → Sage  (MEDIUM/LONG strategies)
     signal_queue_finn   = Queue()   # Finn → Remy
@@ -1125,6 +1145,78 @@ def main():
                         shared[f"status_{name}"] = "failed" if (code is not None and code != 0) else "stopped"
                         if not shutdown.is_set():
                             log.warning(f"Agent {name} died (exit code {code})")
+
+            # ── Platform connect/disconnect commands ───────────────────
+            for platform in ("alpaca", "mt5"):
+                cmd = shared.get(f"cmd_platform_{platform}", "")
+                if not cmd:
+                    continue
+                shared[f"cmd_platform_{platform}"] = ""   # clear before acting
+
+                if cmd == "connect":
+                    # Switch active platform: update TRADING_MODE env var and restart Kai
+                    shared[f"platform_{platform}_status"] = "connecting"
+                    import os as _os
+                    env_path = _os.path.join(_os.path.dirname(__file__), ".env")
+                    try:
+                        with open(env_path) as _f:
+                            _lines = _f.readlines()
+                        _new_mode = "paper" if platform == "alpaca" else "mt5"
+                        _written = False
+                        for _i, _line in enumerate(_lines):
+                            if _line.startswith("TRADING_MODE="):
+                                _lines[_i] = f"TRADING_MODE={_new_mode}\n"
+                                _written = True
+                                break
+                        if not _written:
+                            _lines.insert(0, f"TRADING_MODE={_new_mode}\n")
+                        with open(env_path, "w") as _f:
+                            _f.writelines(_lines)
+                        shared["active_platform"] = platform
+                        log.info(f"[Platform] Switched TRADING_MODE={_new_mode} — restarting Kai")
+                        # Restart Kai (and downstream agents) with the new platform
+                        stop_agent("finn"); stop_agent("sage")
+                        stop_agent("remy"); stop_agent("cole")
+                        stop_agent("clio"); stop_agent("kai")
+                        time.sleep(1)
+                        spawn_agent("kai")
+                        time.sleep(2)
+                        spawn_agent("clio")
+                        time.sleep(1)
+                        spawn_agent("finn"); spawn_agent("sage")
+                        spawn_agent("remy"); spawn_agent("cole")
+                    except Exception as _e:
+                        shared[f"platform_{platform}_status"] = f"error:{_e}"
+                        log.error(f"[Platform] connect {platform} failed: {_e}")
+
+                elif cmd == "disconnect":
+                    if shared.get("active_platform") == platform:
+                        # Stop all execution agents; leave Larry alive
+                        stop_agent("finn"); stop_agent("sage")
+                        stop_agent("remy"); stop_agent("cole")
+                        stop_agent("clio"); stop_agent("kai")
+                        shared["active_platform"] = ""
+                        shared["broker_connected"] = False
+                        shared["kai_ready"] = False
+                    shared[f"platform_{platform}_status"] = "disconnected"
+                    log.info(f"[Platform] {platform} disconnected")
+
+            # ── Update per-platform status from Kai's live state ──────
+            active = shared.get("active_platform", "")
+            if active == "alpaca":
+                if shared.get("broker_connected"):
+                    shared["platform_alpaca_status"] = "connected"
+                elif shared.get("status_kai") == "failed":
+                    shared["platform_alpaca_status"] = "error:connection failed"
+                elif shared.get("platform_alpaca_status") not in ("disconnected", "connecting"):
+                    shared["platform_alpaca_status"] = "disconnected"
+            elif active == "mt5":
+                if shared.get("broker_connected"):
+                    shared["platform_mt5_status"] = "connected"
+                elif shared.get("status_kai") == "failed":
+                    shared["platform_mt5_status"] = "error:connection failed"
+                elif shared.get("platform_mt5_status") not in ("disconnected", "connecting"):
+                    shared["platform_mt5_status"] = "disconnected"
 
             # Process commands written by the web UI
             for name in BOOT_ORDER:
