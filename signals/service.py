@@ -507,8 +507,9 @@ def larry_process(shared: dict, shutdown: Event):
     init_db()
     ensure_default_admin()
 
-    # Monkey-patch the web app's state to read from shared dict
     import web_app
+    web_app._shared = shared  # Wire shared state into web app
+
     original_check = web_app.state._check_broker
 
     def _sync_shared():

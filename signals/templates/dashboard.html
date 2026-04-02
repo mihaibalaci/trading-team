@@ -195,7 +195,17 @@ tr:hover { background:rgba(88,166,255,0.04); }
 
   <!-- AGENTS -->
   <div id="sec-agents" class="section active">
-    <div class="section-title">Team Agents</div>
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+      <div class="section-title" style="margin:0">Team Agents</div>
+      <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px" onclick="loadAgents()">Refresh</button>
+    </div>
+
+    <!-- Checkpoint status -->
+    <div id="checkpoint-bar" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:12px;">
+      <span>💾 State checkpoint:</span>
+      <span id="checkpoint-info">checking...</span>
+    </div>
+
     <table id="agents-table">
       <thead>
         <tr>
@@ -492,7 +502,7 @@ async function loadAgents() {
     const tbody = document.getElementById('agents-body');
     tbody.innerHTML = agents.map(a => {
       const s = a.status;
-      const dotColor = s === 'running' ? 'green' : s === 'failed' ? 'red' : s === 'starting' ? 'yellow' : 'red';
+      const dotColor = s === 'running' ? 'green' : s === 'failed' ? 'red' : s === 'starting' ? 'yellow' : s === 'stopped' ? 'red' : 'yellow';
       const isLarry = a.name === 'larry';
       const standalone = s === 'standalone';
       let btns;
@@ -502,8 +512,8 @@ async function loadAgents() {
         btns = '<span style="color:var(--muted);font-size:12px">this process</span>';
       } else {
         btns = `
-          <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','start')">Start</button>
-          <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','stop')">Stop</button>
+          <button class="btn ${s==='running'?'btn-secondary':'btn-primary'}" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','start')" ${s==='running'?'disabled':''}>Start</button>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','stop')" ${s!=='running'?'disabled':''}>Stop</button>
           <button class="btn btn-primary"   style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','restart')">Restart</button>
           <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','reload')">Reload</button>`;
       }
@@ -514,6 +524,19 @@ async function loadAgents() {
         <td><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${btns}</div></td>
       </tr>`;
     }).join('');
+
+    // Checkpoint info
+    try {
+      const cp = await fetch('/api/checkpoint').then(r => r.json());
+      const el = document.getElementById('checkpoint-info');
+      if (cp.ok) {
+        const ago = cp.age_seconds < 60 ? `${cp.age_seconds}s ago` : `${Math.floor(cp.age_seconds/60)}m ago`;
+        el.innerHTML = `saved ${ago} · equity $${Number(cp.equity).toLocaleString()} · ${cp.total_trades} trades · ${cp.total_pnl_r}R P&L · ${cp.strategies_loaded} strategies`;
+        el.style.color = cp.age_seconds < 60 ? 'var(--green)' : 'var(--yellow)';
+      } else {
+        el.textContent = 'no checkpoint yet';
+      }
+    } catch(e) {}
   } catch(e) { console.error('loadAgents error:', e); }
 }
 

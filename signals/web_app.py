@@ -812,6 +812,27 @@ def api_agent_action(name, action):
 
 
 # ─────────────────────────────────────────────────────────────────
+@app.route("/api/checkpoint")
+@login_required
+def api_checkpoint():
+    import json as _json
+    cp_path = os.path.join(os.path.dirname(__file__), "checkpoint.json")
+    try:
+        mtime = os.path.getmtime(cp_path)
+        age = int(time.time() - mtime)
+        with open(cp_path) as f:
+            data = _json.load(f)
+        return jsonify({
+            "ok": True, "age_seconds": age,
+            "equity": data.get("equity", 0),
+            "total_trades": data.get("total_trades", 0),
+            "total_pnl_r": data.get("total_pnl_r", 0),
+            "strategies_loaded": data.get("strategies_loaded", 0),
+        })
+    except FileNotFoundError:
+        return jsonify({"ok": False, "msg": "No checkpoint yet"})
+
+
 # Main page
 # ─────────────────────────────────────────────────────────────────
 
