@@ -774,6 +774,28 @@ def api_platforms():
         "login":       env.get("MT5_LOGIN", ""),
     })
 
+    # ── DB-stored platforms ───────────────────────────────────────
+    active_db_id = _shared.get("active_platform_db_id") if _shared else None
+    _type_labels = {
+        "alpaca": "Stock / Crypto (Alpaca)",
+        "mt5":    "CFD / Forex (MetaTrader 5)",
+        "custom": "Custom broker",
+    }
+    for p in list_platforms():
+        is_active = (active_db_id == p["id"])
+        db_status = "active" if is_active else "configured"
+        platforms.append({
+            "id":         str(p["id"]),
+            "name":       p["name"],
+            "type":       _type_labels.get(p["platform_type"], p["platform_type"]),
+            "mode":       "live" if p.get("endpoint", "").find("live") != -1 else "paper",
+            "status":     db_status,
+            "configured": True,
+            "active":     is_active,
+            "equity":     _shared.get("equity", 0.0) if (is_active and _shared) else 0.0,
+            "source":     "db",
+        })
+
     return jsonify(platforms)
 
 
@@ -798,6 +820,62 @@ def api_platform_disconnect(platform_id):
         return jsonify({"ok": False, "msg": "Not running in service mode"})
     _shared[f"cmd_platform_{platform_id}"] = "disconnect"
     return jsonify({"ok": True, "msg": f"Disconnecting from {platform_id}..."})
+
+
+@app.route("/api/platforms/<platform_id>/select", methods=["POST"])
+@login_required
+def api_platform_select(platform_id):
+    """Activate a DB-stored platform: write its credentials to .env and trigger Kai reconnect."""
+    import os as _os
+    import json as _json
+
+    env_path = _os.path.join(_os.path.dirname(__file__), ".env")
+
+    try:
+        pid = int(platform_id)
+    except ValueError:
+        return jsonify({"ok": False, "msg": "Invalid platform ID — must be a DB integer ID"}), 400
+
+    platform = get_platform(pid)
+    if not platform:
+        return jsonify({"ok": False, "msg": "Platform not found"}), 404
+
+    ptype      = platform.get("platform_type", "")
+    api_key    = platform.get("api_key", "") or ""
+    api_secret = platform.get("api_secret", "") or ""
+    endpoint   = platform.get("endpoint", "") or ""
+    extra      = _json.loads(platform.get("extra_config", "{}") or "{}")
+
+    try:
+        from dotenv import set_key as _set_key
+        if ptype == "alpaca":
+            mode = "live" if "live" in endpoint.lower() else "paper"
+            _set_key(env_path, "TRADING_MODE", mode)
+            _set_key(env_path, "ALPACA_API_KEY", api_key)
+            _set_key(env_path, "ALPACA_SECRET_KEY", api_secret)
+            if mode == "live":
+                _set_key(env_path, "ALPACA_LIVE_CONFIRMED", "yes")
+        elif ptype == "mt5":
+            login    = extra.get("login", api_key)
+            password = extra.get("password", api_secret)
+            server   = extra.get("server", endpoint)
+            live     = extra.get("live", False)
+            _set_key(env_path, "TRADING_MODE", "mt5live" if live else "mt5")
+            _set_key(env_path, "MT5_LOGIN", str(login))
+            _set_key(env_path, "MT5_PASSWORD", str(password))
+            _set_key(env_path, "MT5_SERVER", str(server))
+        else:
+            return jsonify({"ok": False, "msg": f"Unsupported platform type: {ptype}"}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"Failed to write .env: {e}"}), 500
+
+    if _shared is not None:
+        _shared["active_platform_db_id"] = pid
+        _shared["cmd_switch_platform"] = str(pid)
+        _shared["platform_alpaca_status"] = "connecting" if ptype == "alpaca" else "disconnected"
+        _shared["platform_mt5_status"]    = "connecting" if ptype == "mt5"    else "disconnected"
+
+    return jsonify({"ok": True, "msg": f"Switching to {platform['name']}..."})
 
 
 @app.route("/api/agents/<name>/<action>", methods=["POST"])

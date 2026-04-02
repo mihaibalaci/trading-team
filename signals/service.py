@@ -64,6 +64,11 @@ def create_shared_state(manager: SyncManager) -> dict:
         "drawdown_pct": 0.0,
         "mira_halt": False,
         "strategies_loaded": 0,
+        "active_platform": "",
+        "platform_alpaca_status": "disconnected",
+        "platform_mt5_status": "disconnected",
+        "active_platform_db_id": None,
+        "cmd_switch_platform": None,
     })
 
 
@@ -95,6 +100,10 @@ def kai_process(shared: dict, shutdown: Event):
                 shared["starting_equity"] = acct.equity
                 shared["peak_equity"] = acct.equity
                 shared["kai_ready"] = True
+                _mode = os.getenv("TRADING_MODE", "paper").lower()
+                _active = "mt5" if _mode.startswith("mt5") else "alpaca"
+                shared["active_platform"] = _active
+                shared[f"platform_{_active}_status"] = "connected"
                 proc_log.info(f"Connected — {acct.trading_mode} mode, equity ${acct.equity:,.2f}")
                 break
             else:
@@ -108,6 +117,46 @@ def kai_process(shared: dict, shutdown: Event):
         # Health monitoring loop
         while not shutdown.is_set():
             try:
+                # Handle platform switch command from web UI
+                switch_cmd = shared.get("cmd_switch_platform")
+                if switch_cmd is not None:
+                    shared["cmd_switch_platform"] = None
+                    proc_log.info("Platform switch requested — reconnecting...")
+                    old_active = shared.get("active_platform", "")
+                    if old_active:
+                        shared[f"platform_{old_active}_status"] = "disconnected"
+                    shared["kai_ready"] = False
+                    shared["broker_connected"] = False
+                    try:
+                        from dotenv import load_dotenv as _reload_dotenv
+                        _reload_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
+                        connector = connect()
+                        for _attempt in range(5):
+                            _ok, _detail = connector.health_check()
+                            if _ok:
+                                _acct = connector.get_account_state()
+                                _new_mode = os.getenv("TRADING_MODE", "paper").lower()
+                                _new_active = "mt5" if _new_mode.startswith("mt5") else "alpaca"
+                                shared["active_platform"] = _new_active
+                                shared[f"platform_{_new_active}_status"] = "connected"
+                                shared["broker_connected"] = True
+                                shared["broker_mode"] = _acct.trading_mode
+                                shared["equity"] = _acct.equity
+                                shared["kai_ready"] = True
+                                proc_log.info(f"Switched to {_new_active} — {_acct.trading_mode}, ${_acct.equity:,.2f}")
+                                break
+                            time.sleep(3)
+                        else:
+                            _new_mode = os.getenv("TRADING_MODE", "paper").lower()
+                            _new_active = "mt5" if _new_mode.startswith("mt5") else "alpaca"
+                            shared[f"platform_{_new_active}_status"] = "error: connection failed"
+                            proc_log.error("Platform switch failed after 5 attempts.")
+                    except Exception as _e:
+                        proc_log.error(f"Platform switch error: {_e}")
+                        _new_mode = os.getenv("TRADING_MODE", "paper").lower()
+                        _new_active = "mt5" if _new_mode.startswith("mt5") else "alpaca"
+                        shared[f"platform_{_new_active}_status"] = f"error: {str(_e)[:80]}"
+
                 ok, detail = connector.health_check()
                 if ok:
                     acct = connector.get_account_state()

@@ -455,31 +455,51 @@ async function loadPlatforms() {
            <div class="row"><span class="k">Server</span><span>${p.server || '—'}</span></div>`
         : '';
 
-      const connectBtn = !isConnected && !isConnecting && p.configured
-        ? `<button class="btn btn-primary" style="padding:6px 14px;font-size:12px" onclick="platformAction('${p.id}','connect')">Connect</button>`
+      const isDbPlatform = p.source === 'db';
+      const isSelecting  = isConnecting && isDbPlatform;
+
+      const selectBtn = isDbPlatform && !isActive && !isSelecting
+        ? `<button class="btn btn-primary" style="padding:6px 14px;font-size:12px" onclick="selectPlatform('${p.id}')">Select &amp; Connect</button>`
         : '';
-      const connectingBtn = isConnecting
+      const selectingBtn = isDbPlatform && isSelecting
         ? `<button class="btn btn-secondary" style="padding:6px 14px;font-size:12px" disabled>Connecting...</button>`
         : '';
-      const disconnectBtn = isConnected
+      const connectBtn = !isDbPlatform && !isConnected && !isConnecting && p.configured
+        ? `<button class="btn btn-primary" style="padding:6px 14px;font-size:12px" onclick="platformAction('${p.id}','connect')">Connect</button>`
+        : '';
+      const connectingBtn = !isDbPlatform && isConnecting
+        ? `<button class="btn btn-secondary" style="padding:6px 14px;font-size:12px" disabled>Connecting...</button>`
+        : '';
+      const disconnectBtn = isConnected && !isDbPlatform
         ? `<button class="btn btn-danger" style="padding:6px 14px;font-size:12px" onclick="platformAction('${p.id}','disconnect')">Disconnect</button>`
         : '';
       const notConfigured = !p.configured
         ? `<span style="font-size:12px;color:var(--muted)">Not configured in .env</span>`
         : '';
+      const sourceTag = isDbPlatform
+        ? `<span style="font-size:10px;color:var(--muted);margin-left:auto">saved</span>`
+        : '';
+
+      const displayStatus = isDbPlatform
+        ? (isActive ? 'active' : 'configured')
+        : p.status;
+      const displayStatusColor = isActive ? 'var(--green)'
+        : isDbPlatform ? 'var(--muted)'
+        : statusColor;
 
       return `<div class="platform-card" style="${isActive ? 'border:1px solid var(--green);' : ''}">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
           <strong style="font-size:15px">${p.name}</strong>
           ${isActive ? '<span style="font-size:11px;background:var(--green);color:#000;padding:2px 8px;border-radius:10px;">ACTIVE</span>' : ''}
+          ${sourceTag}
         </div>
         <div class="row"><span class="k">Type</span><span>${p.type}</span></div>
         <div class="row"><span class="k">Mode</span><span>${p.mode.toUpperCase()}</span></div>
         ${extraRows}
-        <div class="row"><span class="k">Status</span><span>${statusDot ? `<span class="dot ${statusDot}"></span>` : ''}${p.status.replace('error:','Error: ')}</span></div>
-        ${isConnected ? `<div class="row"><span class="k">Equity</span><span>${fmt$(p.equity)}</span></div>` : ''}
+        <div class="row"><span class="k">Status</span><span style="color:${displayStatusColor}">${isActive ? '<span class="dot green"></span>' : ''}${displayStatus.replace('error:','Error: ')}</span></div>
+        ${isActive ? `<div class="row"><span class="k">Equity</span><span>${fmt$(p.equity)}</span></div>` : ''}
         <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
-          ${connectBtn}${connectingBtn}${disconnectBtn}${notConfigured}
+          ${selectBtn}${selectingBtn}${connectBtn}${connectingBtn}${disconnectBtn}${notConfigured}
         </div>
       </div>`;
     }).join('');
@@ -504,6 +524,22 @@ async function platformAction(platformId, action) {
       if (connected || errored || attempts > 45) clearInterval(poll);
     }, 1000);
   }
+}
+
+async function selectPlatform(platformId) {
+  const res = await fetch(`/api/platforms/${platformId}/select`, {method:'POST'}).then(r => r.json());
+  if (!res.ok) { alert(res.msg || 'Failed to select platform'); return; }
+  loadPlatforms();
+  // Poll until ACTIVE badge appears or error (up to 60s)
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    await loadPlatforms();
+    attempts++;
+    const grid = document.getElementById('platform-grid');
+    const connected = grid && grid.innerHTML.includes('ACTIVE');
+    const errored   = grid && grid.innerHTML.includes('Error:');
+    if (connected || errored || attempts > 60) clearInterval(poll);
+  }, 1000);
 }
 
 async function doLogout() {
