@@ -41,6 +41,8 @@ from strategy_config import (
 from database import (
     init_db, ensure_default_admin,
     create_user, verify_user, get_user, list_users,
+    change_password, delete_user, update_user_role,
+    list_platforms, save_platform, update_platform, delete_platform, get_platform,
     insert_trade, update_trade_by_id, get_active_trades, get_closed_trades, get_trade_stats,
     upsert_daily_stats, get_daily_stats,
     insert_scanner_session, close_scanner_session, get_scanner_sessions,
@@ -831,6 +833,119 @@ def api_checkpoint():
         })
     except FileNotFoundError:
         return jsonify({"ok": False, "msg": "No checkpoint yet"})
+
+
+# ─────────────────────────────────────────────────────────────────
+# Settings: User Management
+# ─────────────────────────────────────────────────────────────────
+
+@app.route("/api/settings/users")
+@login_required
+def api_settings_users():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    return jsonify({"ok": True, "users": list_users()})
+
+
+@app.route("/api/settings/users/create", methods=["POST"])
+@login_required
+def api_settings_create_user():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    d = request.json or {}
+    username = d.get("username", "").strip()
+    password = d.get("password", "")
+    role = d.get("role", "trader")
+    if not username or not password:
+        return jsonify({"ok": False, "msg": "Username and password required"})
+    if role not in ("admin", "trader", "viewer"):
+        return jsonify({"ok": False, "msg": "Role must be admin, trader, or viewer"})
+    uid = create_user(username, password, role)
+    if uid is None:
+        return jsonify({"ok": False, "msg": "Username already taken"})
+    return jsonify({"ok": True, "id": uid})
+
+
+@app.route("/api/settings/users/password", methods=["POST"])
+@login_required
+def api_settings_change_password():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    d = request.json or {}
+    uid = d.get("user_id")
+    pw = d.get("password", "")
+    if not uid or not pw:
+        return jsonify({"ok": False, "msg": "user_id and password required"})
+    change_password(uid, pw)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/settings/users/role", methods=["POST"])
+@login_required
+def api_settings_change_role():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    d = request.json or {}
+    update_user_role(d.get("user_id"), d.get("role", "trader"))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/settings/users/delete", methods=["POST"])
+@login_required
+def api_settings_delete_user():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    d = request.json or {}
+    uid = d.get("user_id")
+    if uid == session.get("user_id"):
+        return jsonify({"ok": False, "msg": "Cannot delete yourself"})
+    delete_user(uid)
+    return jsonify({"ok": True})
+
+
+# ─────────────────────────────────────────────────────────────────
+# Settings: Platform Management
+# ─────────────────────────────────────────────────────────────────
+
+@app.route("/api/settings/platforms")
+@login_required
+def api_settings_platforms():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    return jsonify({"ok": True, "platforms": list_platforms()})
+
+
+@app.route("/api/settings/platforms/save", methods=["POST"])
+@login_required
+def api_settings_save_platform():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    d = request.json or {}
+    name = d.get("name", "").strip()
+    ptype = d.get("platform_type", "").strip()
+    endpoint = d.get("endpoint", "").strip()
+    api_key = d.get("api_key", "").strip()
+    api_secret = d.get("api_secret", "").strip()
+    if not name or not ptype:
+        return jsonify({"ok": False, "msg": "Name and platform type required"})
+    pid = d.get("id")
+    if pid:
+        update_platform(pid, name=name, platform_type=ptype, endpoint=endpoint,
+                        api_key=api_key, api_secret=api_secret)
+        return jsonify({"ok": True, "id": pid})
+    else:
+        new_id = save_platform(name, ptype, endpoint, api_key, api_secret)
+        return jsonify({"ok": True, "id": new_id})
+
+
+@app.route("/api/settings/platforms/delete", methods=["POST"])
+@login_required
+def api_settings_delete_platform():
+    if session.get("role") != "admin":
+        return jsonify({"ok": False, "msg": "Admin only"}), 403
+    d = request.json or {}
+    delete_platform(d.get("id"))
+    return jsonify({"ok": True})
 
 
 # Main page

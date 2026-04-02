@@ -111,6 +111,7 @@ tr:hover { background:rgba(88,166,255,0.04); }
       <button class="tab active" onclick="showTab('agents')">Agents</button>
       <button class="tab" onclick="showTab('validation')">Validation</button>
       <button class="tab" onclick="showTab('platform')">Platform</button>
+      <button class="tab" onclick="showTab('settings')">Settings</button>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
       <span id="user-label" style="font-size:13px;color:var(--muted)"></span>
@@ -250,6 +251,49 @@ tr:hover { background:rgba(88,166,255,0.04); }
       <div style="color:var(--muted);padding:20px;">Loading...</div>
     </div>
   </div>
+
+  <!-- SETTINGS -->
+  <div id="sec-settings" class="section">
+    <!-- Users -->
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+      <div class="section-title" style="margin:0">User Management</div>
+      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="showAddUser()">+ Add User</button>
+    </div>
+    <div id="add-user-form" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px;">
+      <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">
+        <div><label style="font-size:11px;color:var(--muted)">Username</label><br><input id="new-username" style="padding:6px 10px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:13px;width:160px"></div>
+        <div><label style="font-size:11px;color:var(--muted)">Password</label><br><input id="new-password" type="password" style="padding:6px 10px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:13px;width:160px"></div>
+        <div><label style="font-size:11px;color:var(--muted)">Role</label><br><select id="new-role" style="padding:6px 10px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:13px"><option>trader</option><option>admin</option><option>viewer</option></select></div>
+        <button class="btn btn-primary" style="padding:6px 16px;font-size:12px" onclick="createUser()">Create</button>
+        <button class="btn btn-secondary" style="padding:6px 16px;font-size:12px" onclick="document.getElementById('add-user-form').style.display='none'">Cancel</button>
+      </div>
+    </div>
+    <table><thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Last Login</th><th>Actions</th></tr></thead>
+      <tbody id="users-body"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody>
+    </table>
+
+    <!-- Platforms -->
+    <div style="display:flex;align-items:center;gap:16px;margin:32px 0 16px;">
+      <div class="section-title" style="margin:0">Trading Platforms</div>
+      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="showAddPlatform()">+ Add Platform</button>
+    </div>
+    <div id="add-platform-form" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px;">
+      <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">
+        <div><label style="font-size:11px;color:var(--muted)">Name</label><br><input id="plat-name" placeholder="My Alpaca Paper" style="padding:6px 10px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:13px;width:160px"></div>
+        <div><label style="font-size:11px;color:var(--muted)">Type</label><br><select id="plat-type" style="padding:6px 10px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:13px"><option value="alpaca">Alpaca</option><option value="mt5">MetaTrader 5</option><option value="custom">Custom</option></select></div>
+        <div><label style="font-size:11px;color:var(--muted)">Endpoint</label><br><input id="plat-endpoint" placeholder="https://paper-api.alpaca.markets/v2" style="padding:6px 10px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:13px;width:280px"></div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-top:12px;">
+        <div><label style="font-size:11px;color:var(--muted)">API Key</label><br><input id="plat-key" style="padding:6px 10px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:13px;width:280px"></div>
+        <div><label style="font-size:11px;color:var(--muted)">API Secret</label><br><input id="plat-secret" type="password" style="padding:6px 10px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:13px;width:280px"></div>
+        <button class="btn btn-primary" style="padding:6px 16px;font-size:12px" onclick="savePlatformConfig()">Save</button>
+        <button class="btn btn-secondary" style="padding:6px 16px;font-size:12px" onclick="document.getElementById('add-platform-form').style.display='none'">Cancel</button>
+      </div>
+    </div>
+    <table><thead><tr><th>Name</th><th>Type</th><th>Endpoint</th><th>API Key</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="platforms-body"><tr><td colspan="6" style="color:var(--muted)">Loading...</td></tr></tbody>
+    </table>
+  </div>
 </div>
 
 <script>
@@ -265,6 +309,7 @@ function showTab(name) {
   if (name === 'agents') loadAgents();
   if (name === 'validation') loadValidation();
   if (name === 'platform') loadPlatforms();
+  if (name === 'settings') loadSettings();
 }
 
 function fmt$(v) { return '$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -595,6 +640,95 @@ async function loadAgentLogs() {
     viewer.textContent = d.lines.join('');
     viewer.scrollTop = viewer.scrollHeight;
   } catch(e) { viewer.textContent = 'Error fetching logs: ' + e; }
+}
+
+// ── Settings ─────────────────────────────────────────────────────
+
+async function loadSettings() {
+  // Users
+  try {
+    const d = await fetch('/api/settings/users').then(r=>r.json());
+    if (!d.ok) return;
+    document.getElementById('users-body').innerHTML = d.users.map(u => `<tr>
+      <td><strong>${u.username}</strong></td>
+      <td><span class="badge ${u.role==='admin'?'active':'flat'}">${u.role}</span></td>
+      <td style="color:var(--muted);font-size:12px">${u.created_at||'—'}</td>
+      <td style="color:var(--muted);font-size:12px">${u.last_login||'never'}</td>
+      <td><div style="display:flex;gap:6px">
+        <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px" onclick="promptChangePassword(${u.id},'${u.username}')">Password</button>
+        <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px" onclick="promptChangeRole(${u.id},'${u.username}','${u.role}')">Role</button>
+        <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;color:var(--red)" onclick="confirmDeleteUser(${u.id},'${u.username}')">Delete</button>
+      </div></td>
+    </tr>`).join('');
+  } catch(e) {}
+  // Platforms
+  try {
+    const d = await fetch('/api/settings/platforms').then(r=>r.json());
+    if (!d.ok) return;
+    const tbody = document.getElementById('platforms-body');
+    if (!d.platforms.length) { tbody.innerHTML='<tr><td colspan="6" style="color:var(--muted)">No platforms configured. Click + Add Platform.</td></tr>'; return; }
+    tbody.innerHTML = d.platforms.map(p => `<tr>
+      <td><strong>${p.name}</strong></td>
+      <td>${p.platform_type}</td>
+      <td style="font-size:12px;color:var(--muted)">${p.endpoint||'—'}</td>
+      <td style="font-size:12px;color:var(--muted)">${p.api_key ? p.api_key.slice(0,8)+'...' : '—'}</td>
+      <td><span class="dot ${p.enabled?'green':'red'}"></span>${p.enabled?'enabled':'disabled'}</td>
+      <td><div style="display:flex;gap:6px">
+        <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;color:var(--red)" onclick="confirmDeletePlatform(${p.id},'${p.name}')">Delete</button>
+      </div></td>
+    </tr>`).join('');
+  } catch(e) {}
+}
+
+function showAddUser() { document.getElementById('add-user-form').style.display='block'; }
+function showAddPlatform() { document.getElementById('add-platform-form').style.display='block'; }
+
+async function createUser() {
+  const r = await fetch('/api/settings/users/create', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username:document.getElementById('new-username').value, password:document.getElementById('new-password').value, role:document.getElementById('new-role').value})});
+  const d = await r.json();
+  if (!d.ok) { alert(d.msg); return; }
+  document.getElementById('add-user-form').style.display='none';
+  document.getElementById('new-username').value=''; document.getElementById('new-password').value='';
+  loadSettings();
+}
+
+async function promptChangePassword(uid, name) {
+  const pw = prompt(`New password for ${name}:`);
+  if (!pw) return;
+  const r = await fetch('/api/settings/users/password', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid, password:pw})});
+  const d = await r.json();
+  alert(d.ok ? 'Password changed' : d.msg);
+}
+
+async function promptChangeRole(uid, name, current) {
+  const role = prompt(`New role for ${name} (admin/trader/viewer):`, current);
+  if (!role) return;
+  await fetch('/api/settings/users/role', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid, role:role})});
+  loadSettings();
+}
+
+async function confirmDeleteUser(uid, name) {
+  if (!confirm(`Delete user "${name}"? This cannot be undone.`)) return;
+  await fetch('/api/settings/users/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:uid})});
+  loadSettings();
+}
+
+async function savePlatformConfig() {
+  const r = await fetch('/api/settings/platforms/save', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name:document.getElementById('plat-name').value, platform_type:document.getElementById('plat-type').value,
+      endpoint:document.getElementById('plat-endpoint').value, api_key:document.getElementById('plat-key').value, api_secret:document.getElementById('plat-secret').value})});
+  const d = await r.json();
+  if (!d.ok) { alert(d.msg); return; }
+  document.getElementById('add-platform-form').style.display='none';
+  ['plat-name','plat-endpoint','plat-key','plat-secret'].forEach(id=>document.getElementById(id).value='');
+  loadSettings();
+}
+
+async function confirmDeletePlatform(pid, name) {
+  if (!confirm(`Delete platform "${name}"?`)) return;
+  await fetch('/api/settings/platforms/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:pid})});
+  loadSettings();
 }
 
 // Auto-refresh every 5s; also refresh agents panel if it's active

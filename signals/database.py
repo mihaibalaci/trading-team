@@ -213,6 +213,83 @@ def list_users() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def change_password(user_id: int, new_password: str) -> bool:
+    salt = secrets.token_hex(16)
+    pw_hash = _hash_password(new_password, salt)
+    with get_db() as db:
+        db.execute("UPDATE users SET password_hash=?, salt=? WHERE id=?", (pw_hash, salt, user_id))
+    return True
+
+
+def delete_user(user_id: int) -> bool:
+    with get_db() as db:
+        db.execute("DELETE FROM users WHERE id=?", (user_id,))
+    return True
+
+
+def update_user_role(user_id: int, role: str) -> bool:
+    with get_db() as db:
+        db.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
+    return True
+
+
+# ─────────────────────────────────────────────────────────────────
+# Platforms CRUD
+# ─────────────────────────────────────────────────────────────────
+
+def _init_platforms_table():
+    with get_db() as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS platforms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            platform_type TEXT NOT NULL,
+            endpoint TEXT,
+            api_key TEXT,
+            api_secret TEXT,
+            extra_config TEXT DEFAULT '{}',
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )""")
+
+_init_platforms_table()
+
+
+def list_platforms() -> list[dict]:
+    with get_db() as db:
+        rows = db.execute("SELECT id, name, platform_type, endpoint, api_key, enabled, created_at FROM platforms").fetchall()
+        return [dict(r) for r in rows]
+
+
+def save_platform(name: str, platform_type: str, endpoint: str, api_key: str, api_secret: str, extra_config: str = "{}") -> int:
+    with get_db() as db:
+        cur = db.execute(
+            "INSERT INTO platforms (name, platform_type, endpoint, api_key, api_secret, extra_config) VALUES (?,?,?,?,?,?)",
+            (name, platform_type, endpoint, api_key, api_secret, extra_config),
+        )
+        return cur.lastrowid
+
+
+def update_platform(platform_id: int, **kwargs):
+    allowed = {"name", "platform_type", "endpoint", "api_key", "api_secret", "extra_config", "enabled"}
+    sets = {k: v for k, v in kwargs.items() if k in allowed}
+    if not sets:
+        return
+    sql = "UPDATE platforms SET " + ", ".join(f"{k}=?" for k in sets) + " WHERE id=?"
+    with get_db() as db:
+        db.execute(sql, list(sets.values()) + [platform_id])
+
+
+def delete_platform(platform_id: int):
+    with get_db() as db:
+        db.execute("DELETE FROM platforms WHERE id=?", (platform_id,))
+
+
+def get_platform(platform_id: int) -> Optional[dict]:
+    with get_db() as db:
+        row = db.execute("SELECT * FROM platforms WHERE id=?", (platform_id,)).fetchone()
+        return dict(row) if row else None
+
+
 # ─────────────────────────────────────────────────────────────────
 # Trade CRUD
 # ─────────────────────────────────────────────────────────────────
