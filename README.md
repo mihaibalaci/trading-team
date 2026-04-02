@@ -1,4 +1,4 @@
-# AI Trading Team
+# MAB Trading Team
 
 Automated trading system using multi-timeframe candlestick pattern analysis with Alpaca paper trading.
 
