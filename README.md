@@ -44,7 +44,8 @@ tests/
 ├── test_indicators.py   — 23 tests (EMA, Stochastic, ATR, Pivots, Fibonacci, trend)
 ├── test_patterns.py     — 46 tests (all 20+ candlestick patterns)
 ├── test_confluence.py   — 6 tests (confluence scoring)
-└── test_execution.py    — 18 tests (SessionGuard, SignalValidator, cost estimators)
+├── test_execution.py    — 18 tests (SessionGuard, SignalValidator, cost estimators)
+└── test_web_app.py      — 17 tests (agents, strategies, validation, status APIs)
 
 Team/                    — AI team member profiles & research docs
 deploy/                  — systemd service, install script
@@ -80,9 +81,10 @@ See `Team/VERA_STRATEGY_MTF_SCALP.md` for full strategy documentation.
 ## Testing
 
 ```bash
-python -m pytest tests/ -v          # all 93 tests
+python -m pytest tests/ -v          # all 110 tests
 python -m pytest tests/ -k pattern  # pattern tests only
 python -m pytest tests/ -k guard    # session guard tests only
+python -m pytest tests/ -k web_app  # dashboard API tests
 ```
 
 ## Deployment
