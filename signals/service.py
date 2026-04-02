@@ -582,6 +582,16 @@ def main():
     def graceful_shutdown(signum=None, frame=None):
         print("\n\n  Shutting down all agents...")
         shutdown.set()
+        # Save state before stopping
+        try:
+            import json as _json
+            CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "checkpoint.json")
+            snap = {k: shared[k] for k in shared.keys()}
+            with open(CHECKPOINT_PATH, "w") as f:
+                _json.dump(snap, f, default=str)
+            print("  Checkpoint saved.")
+        except Exception:
+            pass
         for p in reversed(processes):
             if p.is_alive():
                 print(f"  Stopping {p.name}...")
@@ -645,16 +655,114 @@ def main():
     print("  Press Ctrl+C to stop all agents.")
     print("=" * 64)
 
-    # Keep main process alive
+    # ── Agent registry for restart support ──────────────────────────
+    agent_registry = {}
+    for (name, target, proc_args), p in zip(agents, processes):
+        agent_registry[name.lower()] = {
+            "target": target, "args": proc_args, "process": p,
+        }
+        shared[f"status_{name.lower()}"] = "running" if p.is_alive() else "failed"
+
+    # ── State checkpoint: dump to disk every 30s ─────────────────
+    import json as _json
+    CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "checkpoint.json")
+
+    def save_checkpoint():
+        """Persist shared state to disk so work isn't lost on crash."""
+        try:
+            snap = {k: shared[k] for k in shared.keys()}
+            with open(CHECKPOINT_PATH, "w") as f:
+                _json.dump(snap, f, default=str)
+        except Exception as e:
+            log.debug(f"Checkpoint save error: {e}")
+
+    def load_checkpoint():
+        """Restore shared state from last checkpoint if available."""
+        try:
+            if os.path.exists(CHECKPOINT_PATH):
+                with open(CHECKPOINT_PATH) as f:
+                    snap = _json.load(f)
+                for k, v in snap.items():
+                    if k not in ("kai_ready", "clio_ready", "mira_ready",
+                                 "finn_running", "remy_running", "larry_running"):
+                        shared[k] = v
+                log.info(f"Restored checkpoint: equity=${snap.get('equity', 0):,.2f}, "
+                         f"trades={snap.get('total_trades', 0)}")
+        except Exception as e:
+            log.debug(f"Checkpoint load error: {e}")
+
+    load_checkpoint()
+
+    # ── Main loop: health monitor + command handler + checkpoint ──
+    last_checkpoint = time.time()
+
     try:
         while not shutdown.is_set():
-            # Monitor agent health
-            for p in processes:
-                if not p.is_alive() and not shutdown.is_set():
-                    log.warning(f"Agent {p.name} died unexpectedly (exit code {p.exitcode})")
+            now = time.time()
 
-            time.sleep(5)
+            for name_lower, reg in agent_registry.items():
+                p = reg["process"]
+
+                # Update status
+                if p.is_alive():
+                    shared[f"status_{name_lower}"] = "running"
+                elif not shutdown.is_set():
+                    shared[f"status_{name_lower}"] = "failed"
+                    log.warning(f"Agent {name_lower} died (exit code {p.exitcode})")
+
+                # Handle commands from dashboard
+                cmd = shared.get(f"cmd_{name_lower}")
+                if cmd:
+                    shared[f"cmd_{name_lower}"] = ""  # clear command
+                    log.info(f"Command: {name_lower} → {cmd}")
+
+                    if cmd == "stop" and p.is_alive():
+                        p.terminate()
+                        p.join(timeout=5)
+                        if p.is_alive():
+                            p.kill()
+                        shared[f"status_{name_lower}"] = "stopped"
+                        log.info(f"Stopped {name_lower}")
+
+                    elif cmd == "start" and not p.is_alive():
+                        new_p = Process(
+                            target=reg["target"], args=reg["args"],
+                            name=name_lower.capitalize(), daemon=True,
+                        )
+                        new_p.start()
+                        reg["process"] = new_p
+                        shared[f"status_{name_lower}"] = "starting"
+                        log.info(f"Started {name_lower}")
+
+                    elif cmd == "restart":
+                        if p.is_alive():
+                            p.terminate()
+                            p.join(timeout=5)
+                            if p.is_alive():
+                                p.kill()
+                        save_checkpoint()
+                        new_p = Process(
+                            target=reg["target"], args=reg["args"],
+                            name=name_lower.capitalize(), daemon=True,
+                        )
+                        new_p.start()
+                        reg["process"] = new_p
+                        shared[f"status_{name_lower}"] = "starting"
+                        log.info(f"Restarted {name_lower}")
+
+                    elif cmd == "reload":
+                        shared[f"reload_{name_lower}"] = True
+                        log.info(f"Reload signal sent to {name_lower}")
+
+            # Periodic checkpoint
+            if now - last_checkpoint >= 30:
+                save_checkpoint()
+                last_checkpoint = now
+
+            time.sleep(3)
+
     except KeyboardInterrupt:
+        save_checkpoint()
         graceful_shutdown()
 
     # Wait for all processes
