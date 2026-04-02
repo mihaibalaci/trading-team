@@ -610,14 +610,11 @@ def main():
                     print(f"  [{name:6s}] Ready ✓")
                     break
                 if not p.is_alive():
-                    print(f"  [{name:6s}] FAILED — broker connection could not be established.")
-                    graceful_shutdown()
-                    sys.exit(1)
+                    print(f"  [{name:6s}] FAILED — broker not connected. Dashboard will start without trading.")
+                    break
                 time.sleep(0.5)
             else:
-                print(f"  [{name:6s}] TIMEOUT — could not connect in {timeout}s.")
-                graceful_shutdown()
-                sys.exit(1)
+                print(f"  [{name:6s}] TIMEOUT — starting dashboard without broker.")
 
         # Wait for Clio to load strategies
         elif name == "Clio":
