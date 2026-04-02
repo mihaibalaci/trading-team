@@ -8,8 +8,10 @@
 | Nolan | Head of Human Resources | [Team/NOLAN.md](Team/NOLAN.md) | Active |
 | Pax | Senior Researcher | [Team/PAX.md](Team/PAX.md) | Active |
 | Vera | Strategy & Portfolio Manager | [Team/VERA.md](Team/VERA.md) | Active |
-| Finn | Trade Signal Analyst | [Team/FINN.md](Team/FINN.md) | Active |
-| Remy | Trade Execution Specialist | [Team/REMY.md](Team/REMY.md) | Active |
+| Finn | Trade Signal Analyst (Scalp/Intraday) | [Team/FINN.md](Team/FINN.md) | Active |
+| Sage | Swing & Positional Signal Analyst | [Team/SAGE.md](Team/SAGE.md) | Active |
+| Remy | Trade Execution Specialist (Intraday) | [Team/REMY.md](Team/REMY.md) | Active |
+| Cole | Swing Trade Execution Specialist | [Team/COLE.md](Team/COLE.md) | Active |
 | Mira | Trade Risk Officer | [Team/MIRA.md](Team/MIRA.md) | Active |
 | Clio | Data & Knowledge Manager | [Team/CLIO.md](Team/CLIO.md) | Active |
 | Kai | Platform Integration Engineer | [Team/KAI.md](Team/KAI.md) | Active |
@@ -23,8 +25,10 @@ Owner
   ↓ ↑
  Larry  (orchestrator — all tasks route through here)
   ├── Vera  (decides what to trade & how much)
-  │     ├── Finn   (generates signals → Vera)
-  │     ├── Remy   (executes Vera's approved orders)
+  │     ├── Finn   (scalp/intraday signals → Remy)
+  │     ├── Sage   (swing/positional signals → Cole)
+  │     ├── Remy   (executes Finn's intraday signals)
+  │     ├── Cole   (executes Sage's swing signals)
   │     └── Mira   (risk oversight — can block any trade)
   ├── Pax   (research — available to all members)
   ├── Clio  (knowledge base — feeds Vera & Pax)

@@ -488,17 +488,68 @@ def connect(env_path: str | None = None) -> BrokerConnector:
     Load credentials from .env and return a configured BrokerConnector.
 
     env_path: path to .env file. Defaults to signals/.env
-    TRADING_MODE must be explicitly set to 'live' for live orders.
-    Any other value routes to Alpaca paper trading.
 
-    Example .env:
+    TRADING_MODE selects the broker:
+        paper   → Alpaca paper trading (default)
+        live    → Alpaca live trading (requires ALPACA_LIVE_CONFIRMED=yes)
+        mt5     → MetaTrader 5 (requires MT5 terminal running on same Windows machine)
+        mt5live → MetaTrader 5 live account (same credentials, mode flag for logging)
+
+    Example .env for Alpaca:
         TRADING_MODE=paper
         ALPACA_API_KEY=PKXXXXXXXXXXXXXXXX
         ALPACA_SECRET_KEY=your_secret_here
+
+    Example .env for MT5:
+        TRADING_MODE=mt5
+        MT5_LOGIN=12345678
+        MT5_PASSWORD=your_password
+        MT5_SERVER=YourBroker-Demo
     """
     load_dotenv(env_path or os.path.join(os.path.dirname(__file__), ".env"))
 
-    mode       = os.getenv("TRADING_MODE", "paper").strip().lower()
+    mode = os.getenv("TRADING_MODE", "paper").strip().lower()
+
+    # ── MetaTrader 5 ──────────────────────────────────────────────────────────
+    if mode in ("mt5", "mt5live", "mt5demo"):
+        from mt5_connector import MT5Connector
+
+        login_str = os.getenv("MT5_LOGIN", "").strip()
+        password  = os.getenv("MT5_PASSWORD", "").strip()
+        server    = os.getenv("MT5_SERVER", "").strip()
+
+        if not login_str or not password or not server:
+            raise EnvironmentError(
+                "MT5_LOGIN, MT5_PASSWORD, and MT5_SERVER must be set in .env "
+                "when TRADING_MODE=mt5.\n"
+                "Example:\n"
+                "  MT5_LOGIN=12345678\n"
+                "  MT5_PASSWORD=your_password\n"
+                "  MT5_SERVER=YourBroker-Demo"
+            )
+
+        try:
+            login = int(login_str)
+        except ValueError:
+            raise EnvironmentError(
+                f"MT5_LOGIN must be an integer account number, got: '{login_str}'"
+            )
+
+        path  = os.getenv("MT5_PATH", "").strip() or None
+        magic = int(os.getenv("MT5_MAGIC", str(20250101)))
+        demo  = (mode != "mt5live")
+
+        connector = MT5Connector(
+            login=login, password=password, server=server,
+            path=path, magic=magic, demo=demo,
+        )
+        log.info(
+            f"[KAI] BrokerConnector ready — "
+            f"MT5 {'DEMO' if demo else 'LIVE'}"
+        )
+        return connector
+
+    # ── Alpaca ────────────────────────────────────────────────────────────────
     api_key    = os.getenv("ALPACA_API_KEY", "").strip()
     secret_key = os.getenv("ALPACA_SECRET_KEY", "").strip()
 
@@ -514,7 +565,6 @@ def connect(env_path: str | None = None) -> BrokerConnector:
     paper = (mode != "live")
 
     if not paper:
-        # Extra confirmation — live mode must be intentional
         confirm = os.getenv("ALPACA_LIVE_CONFIRMED", "").strip().lower()
         if confirm != "yes":
             raise EnvironmentError(
