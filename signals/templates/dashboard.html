@@ -105,10 +105,10 @@ tr:hover { background:rgba(88,166,255,0.04); }
   <nav>
     <h1>🤖 AI Trading Team</h1>
     <div class="tabs">
-      <button class="tab active" onclick="showTab('dashboard')">Dashboard</button>
+      <button class="tab" onclick="showTab('dashboard')">Dashboard</button>
       <button class="tab" onclick="showTab('trades')">Trade History</button>
       <button class="tab" onclick="showTab('strategies')">Strategies</button>
-      <button class="tab" onclick="showTab('agents')">Agents</button>
+      <button class="tab active" onclick="showTab('agents')">Agents</button>
       <button class="tab" onclick="showTab('validation')">Validation</button>
       <button class="tab" onclick="showTab('platform')">Platform</button>
     </div>
@@ -119,7 +119,7 @@ tr:hover { background:rgba(88,166,255,0.04); }
   </nav>
 
   <!-- DASHBOARD -->
-  <div id="sec-dashboard" class="section active">
+  <div id="sec-dashboard" class="section">
     <div class="cards">
       <div class="card"><div class="label">Equity</div><div class="value" id="v-equity">—</div></div>
       <div class="card"><div class="label">Total P&L</div><div class="value" id="v-pnl">—</div></div>
@@ -194,7 +194,7 @@ tr:hover { background:rgba(88,166,255,0.04); }
   </div>
 
   <!-- AGENTS -->
-  <div id="sec-agents" class="section">
+  <div id="sec-agents" class="section active">
     <div class="section-title">Team Agents</div>
     <table id="agents-table">
       <thead>
@@ -220,7 +220,9 @@ tr:hover { background:rgba(88,166,255,0.04); }
           <option value="clio">clio</option>
           <option value="mira">mira</option>
           <option value="finn">finn</option>
+          <option value="sage">sage</option>
           <option value="remy">remy</option>
+          <option value="cole">cole</option>
         </select>
         <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px" onclick="loadAgentLogs()">Refresh</button>
       </div>
@@ -241,7 +243,7 @@ tr:hover { background:rgba(88,166,255,0.04); }
 </div>
 
 <script>
-let _activeTab = 'dashboard';
+let _activeTab = 'agents';
 
 function showTab(name) {
   _activeTab = name;
@@ -499,14 +501,11 @@ async function loadAgents() {
       } else if (isLarry) {
         btns = '<span style="color:var(--muted);font-size:12px">this process</span>';
       } else {
-        const reloadBtn = a.name === 'clio'
-          ? `<button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','reload')">Reload</button>`
-          : '';
         btns = `
           <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','start')">Start</button>
           <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','stop')">Stop</button>
           <button class="btn btn-primary"   style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','restart')">Restart</button>
-          ${reloadBtn}`;
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="agentAction('${a.name}','reload')">Reload</button>`;
       }
       return `<tr>
         <td><strong>${a.name.charAt(0).toUpperCase()+a.name.slice(1)}</strong></td>
@@ -577,6 +576,7 @@ async function loadAgentLogs() {
 
 // Auto-refresh every 5s; also refresh agents panel if it's active
 refresh();
+loadAgents();
 setInterval(() => {
   refresh();
   if (_activeTab === 'agents') loadAgents();
