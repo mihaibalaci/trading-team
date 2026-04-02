@@ -9,12 +9,15 @@ import json
 os.environ.setdefault("FLASK_SECRET", "test-secret")
 
 from web_app import app
+from database import init_db, ensure_default_admin
 
 
 @pytest.fixture
 def client():
     app.config["TESTING"] = True
     app.config["SECRET_KEY"] = "test-secret"
+    init_db()
+    ensure_default_admin()
     with app.test_client() as c:
         r = c.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
         data = r.get_json()
