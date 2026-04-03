@@ -69,6 +69,8 @@ def create_shared_state(manager: SyncManager) -> dict:
         "platform_mt5_status": "disconnected",
         "active_platform_db_id": None,
         "cmd_switch_platform": None,
+        "tv_enabled": False,
+        "tv_signals_received": 0,
     })
 
 
@@ -544,7 +546,7 @@ def remy_process(shared: dict, signal_queue: Queue, shutdown: Event):
 # Agent: Larry — Web Dashboard (Flask)
 # ─────────────────────────────────────────────────────────────────
 
-def larry_process(shared: dict, shutdown: Event):
+def larry_process(shared: dict, signal_queue: Queue, shutdown: Event):
     """
     Larry runs the Flask web dashboard. Reads shared state for display.
     """
@@ -556,8 +558,14 @@ def larry_process(shared: dict, shutdown: Event):
     init_db()
     ensure_default_admin()
 
+    # Ensure TradingView webhook token exists in .env before Flask starts
+    from tradingview_connector import get_or_create_token as _tv_token
+    _tv_tok = _tv_token()
+    proc_log.info(f"TradingView webhook ready — token: {_tv_tok[:8]}...")
+
     import web_app
-    web_app._shared = shared  # Wire shared state into web app
+    web_app._shared = shared           # Wire shared state into web app
+    web_app._tv_signal_queue = signal_queue  # TV webhooks feed the same queue as Finn
 
     original_check = web_app.state._check_broker
 
@@ -624,7 +632,7 @@ def main():
         ("Mira", mira_process, (shared, shutdown)),
         ("Finn", finn_process, (shared, strategy_queue, signal_queue, shutdown)),
         ("Remy", remy_process, (shared, signal_queue, shutdown)),
-        ("Larry", larry_process, (shared, shutdown)),
+        ("Larry", larry_process, (shared, signal_queue, shutdown)),
     ]
 
     processes: list[Process] = []

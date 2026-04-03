@@ -60,6 +60,10 @@ app.secret_key = os.environ.get("FLASK_SECRET", secrets.token_hex(32))
 # Routes read agent statuses and write commands through this reference.
 _shared = None
 
+# Injected by service.py larry_process: the same Queue Finn uses.
+# TradingView webhooks push FinnSignals here so Remy executes them.
+_tv_signal_queue = None
+
 # ─────────────────────────────────────────────────────────────────
 # In-memory state
 # ─────────────────────────────────────────────────────────────────
@@ -796,6 +800,24 @@ def api_platforms():
             "source":     "db",
         })
 
+    # ── TradingView webhook ───────────────────────────────────────
+    from tradingview_connector import recent_signals as _tv_recent
+    tv_count   = _shared.get("tv_signals_received", 0) if _shared else 0
+    tv_enabled = _shared.get("tv_enabled", False) if _shared else False
+    platforms.append({
+        "id":         "tradingview",
+        "name":       "TradingView",
+        "type":       "Webhook signal source",
+        "mode":       "live",
+        "status":     "active" if tv_enabled else "listening",
+        "configured": True,
+        "active":     tv_enabled,
+        "equity":     0.0,
+        "source":     "tv",
+        "signals_received": tv_count,
+        "recent_signal": _tv_recent[0]["symbol"] if _tv_recent else None,
+    })
+
     return jsonify(platforms)
 
 
@@ -876,6 +898,77 @@ def api_platform_select(platform_id):
         _shared["platform_mt5_status"]    = "connecting" if ptype == "mt5"    else "disconnected"
 
     return jsonify({"ok": True, "msg": f"Switching to {platform['name']}..."})
+
+
+# ─────────────────────────────────────────────────────────────────
+# TradingView webhook receiver
+# ─────────────────────────────────────────────────────────────────
+
+@app.route("/webhook/tradingview", methods=["POST"])
+def webhook_tradingview():
+    """
+    Receive a TradingView alert webhook.
+    No session auth — validated by token in the payload body.
+    Pushes the parsed FinnSignal onto the signal queue for Remy.
+    """
+    import tradingview_connector as _tv
+
+    data = request.get_json(force=True, silent=True) or {}
+
+    ok, msg = _tv.validate_token(data)
+    if not ok:
+        log.warning(f"TradingView webhook rejected: {msg}")
+        return jsonify({"ok": False, "msg": msg}), 401
+
+    try:
+        signal  = _tv.parse_payload(data)
+        profile = _tv.tv_strategy_profile()
+    except ValueError as e:
+        log.warning(f"TradingView webhook parse error: {e}")
+        return jsonify({"ok": False, "msg": str(e)}), 400
+
+    if _tv_signal_queue is not None:
+        _tv_signal_queue.put(("TradingView", signal, profile))
+        if _shared is not None:
+            _shared["tv_signals_received"] = _shared.get("tv_signals_received", 0) + 1
+            _shared["tv_enabled"] = True
+        log.info(f"TradingView signal queued: {signal.instrument} {signal.direction} @ {signal.entry_price}")
+        return jsonify({"ok": True, "msg": "Signal queued", "instrument": signal.instrument,
+                        "direction": signal.direction, "entry": signal.entry_price})
+    else:
+        # Running standalone (no service mode) — log only
+        log.info(f"TradingView signal received (no queue): {signal.instrument} {signal.direction}")
+        return jsonify({"ok": True, "msg": "Signal logged (not in service mode)", "instrument": signal.instrument})
+
+
+@app.route("/api/tradingview/status")
+@login_required
+def api_tv_status():
+    """Return webhook URL, token, and recent signals."""
+    import tradingview_connector as _tv
+    token   = _tv.get_or_create_token()
+    host    = request.host.split(":")[0]
+    webhook_url = f"http://{host}/webhook/tradingview"
+    return jsonify({
+        "ok":               True,
+        "webhook_url":      webhook_url,
+        "token":            token,
+        "signals_received": _shared.get("tv_signals_received", 0) if _shared else 0,
+        "enabled":          _shared.get("tv_enabled", False) if _shared else False,
+        "recent_signals":   list(_tv.recent_signals)[:10],
+    })
+
+
+@app.route("/api/tradingview/toggle", methods=["POST"])
+@login_required
+def api_tv_toggle():
+    """Enable or disable forwarding TV signals to execution."""
+    if _shared is None:
+        return jsonify({"ok": False, "msg": "Not in service mode"})
+    current = _shared.get("tv_enabled", False)
+    _shared["tv_enabled"] = not current
+    state_str = "enabled" if _shared["tv_enabled"] else "disabled"
+    return jsonify({"ok": True, "enabled": _shared["tv_enabled"], "msg": f"TradingView signals {state_str}"})
 
 
 @app.route("/api/agents/<name>/<action>", methods=["POST"])

@@ -480,6 +480,31 @@ async function loadPlatforms() {
         ? `<span style="font-size:10px;color:var(--muted);margin-left:auto">saved</span>`
         : '';
 
+      // ── TradingView: special card ───────────────────────────────
+      if (p.source === 'tv') {
+        const tvActive = p.active;
+        const tvBadge  = tvActive
+          ? '<span style="font-size:11px;background:var(--green);color:#000;padding:2px 8px;border-radius:10px;">ACTIVE</span>'
+          : '<span style="font-size:11px;background:#444;color:#ccc;padding:2px 8px;border-radius:10px;">LISTENING</span>';
+        const toggleLabel = tvActive ? 'Pause signals' : 'Enable signals';
+        const toggleClass = tvActive ? 'btn-secondary' : 'btn-primary';
+        const lastSig = p.recent_signal
+          ? `<div class="row"><span class="k">Last signal</span><span>${p.recent_signal}</span></div>` : '';
+        return `<div class="platform-card" style="${tvActive ? 'border:1px solid var(--green);' : ''}">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+            <strong style="font-size:15px">TradingView</strong>
+            ${tvBadge}
+          </div>
+          <div class="row"><span class="k">Type</span><span>Webhook signal source</span></div>
+          <div class="row"><span class="k">Signals received</span><span>${p.signals_received || 0}</span></div>
+          ${lastSig}
+          <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn ${toggleClass}" style="padding:6px 14px;font-size:12px" onclick="tvToggle()">${toggleLabel}</button>
+            <button class="btn btn-secondary" style="padding:6px 14px;font-size:12px" onclick="tvSetup()">Setup / Webhook URL</button>
+          </div>
+        </div>`;
+      }
+
       const displayStatus = isDbPlatform
         ? (isActive ? 'active' : 'configured')
         : p.status;
@@ -540,6 +565,84 @@ async function selectPlatform(platformId) {
     const errored   = grid && grid.innerHTML.includes('Error:');
     if (connected || errored || attempts > 60) clearInterval(poll);
   }, 1000);
+}
+
+async function tvToggle() {
+  const res = await fetch('/api/tradingview/toggle', {method:'POST'}).then(r => r.json());
+  if (!res.ok) { alert(res.msg); return; }
+  loadPlatforms();
+}
+
+async function tvSetup() {
+  const d = await fetch('/api/tradingview/status').then(r => r.json());
+  if (!d.ok) { alert('Could not load TradingView status'); return; }
+
+  const alertMsg = JSON.stringify({
+    token: d.token,
+    symbol: "{{ticker}}",
+    action: "{{strategy.order.action}}",
+    price: "{{close}}",
+    stop_loss: 0,
+    take_profit: 0,
+    comment: "{{strategy.order.comment}}"
+  }, null, 2);
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;max-width:620px;width:90%;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <strong style="font-size:16px">TradingView Webhook Setup</strong>
+        <button class="btn btn-secondary" style="padding:4px 12px;font-size:12px" onclick="this.closest('.tv-modal').remove()">✕ Close</button>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">WEBHOOK URL — paste this into TradingView alert → Notifications → Webhook URL</label>
+        <div style="display:flex;gap:8px">
+          <input id="tv-url-input" value="${d.webhook_url}" readonly style="flex:1;padding:8px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-family:monospace;font-size:12px">
+          <button class="btn btn-primary" style="padding:6px 14px;font-size:12px" onclick="navigator.clipboard.writeText('${d.webhook_url}').then(()=>this.textContent='Copied!')">Copy</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">SECRET TOKEN — already embedded in the alert message below</label>
+        <input value="${d.token}" readonly style="width:100%;padding:8px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-family:monospace;font-size:12px;box-sizing:border-box">
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">ALERT MESSAGE — paste this in TradingView alert → Message field</label>
+        <textarea readonly style="width:100%;height:160px;padding:8px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-family:monospace;font-size:12px;resize:vertical;box-sizing:border-box">${alertMsg.replace(/"/g, '&quot;')}</textarea>
+      </div>
+
+      <div style="background:var(--bg);border-radius:6px;padding:12px;font-size:12px;color:var(--muted);line-height:1.6">
+        <strong style="color:var(--text)">Quick setup in TradingView:</strong><br>
+        1. Open a chart → click the <em>Alert</em> (clock) icon<br>
+        2. Set your condition (or use a Pine Script strategy)<br>
+        3. In <em>Notifications</em>, enable <strong>Webhook URL</strong> and paste the URL above<br>
+        4. Paste the alert message above into the <em>Message</em> field<br>
+        5. Save — signals will now arrive here and execute on your active broker<br><br>
+        <strong style="color:var(--text)">Supported actions:</strong> buy · sell · long · short<br>
+        <strong style="color:var(--text)">Optional fields:</strong> stop_loss, take_profit (price), atr<br>
+        <strong style="color:var(--text)">Signals received so far:</strong> ${d.signals_received}
+      </div>
+
+      ${d.recent_signals.length ? `
+      <div style="margin-top:16px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">RECENT SIGNALS</label>
+        <table style="font-size:11px;width:100%">
+          <thead><tr><th>Time</th><th>Symbol</th><th>Direction</th><th>Entry</th></tr></thead>
+          <tbody>${d.recent_signals.map(s=>`<tr>
+            <td style="color:var(--muted)">${s.ts.slice(11,19)}</td>
+            <td>${s.symbol}</td>
+            <td style="color:${s.direction==='long'?'var(--green)':'var(--red)'}">${s.direction.toUpperCase()}</td>
+            <td>${s.entry}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>` : ''}
+    </div>`;
+  modal.classList.add('tv-modal');
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
 }
 
 async function doLogout() {
